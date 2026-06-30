@@ -1,0 +1,942 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Budget Pro</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Budget Pro">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <meta name="theme-color" content="#F5F4F1">
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --bg:#F5F4F1;--card:#FFFFFF;--text:#111111;--text2:#6B6866;
+      --border:#E3E2DE;--green:#1A7A4A;--green-bg:#EAF5EE;
+      --red:#C0392B;--red-bg:#FDECEA;--accent:#4F46E5;--nav-h:60px;
+      --safe-top:env(safe-area-inset-top,0px);--safe-bottom:env(safe-area-inset-bottom,0px);
+    }
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);height:100dvh;overflow:hidden}
+
+    /* Pages */
+    .page{display:none;position:absolute;inset:0;bottom:calc(var(--nav-h) + var(--safe-bottom));overflow-y:auto;-webkit-overflow-scrolling:touch}
+    .page.active{display:block}
+    .page-header{display:flex;align-items:baseline;justify-content:space-between;padding:calc(var(--safe-top) + 1rem) 1.25rem .75rem;position:sticky;top:0;background:var(--bg);z-index:5}
+    .app-title{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text2)}
+    .sub-label{font-size:13px;color:var(--text2)}
+
+    /* Nav */
+    .bottom-nav{position:fixed;bottom:0;left:0;right:0;height:calc(var(--nav-h) + var(--safe-bottom));padding-bottom:var(--safe-bottom);background:rgba(245,244,241,.92);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-top:1px solid var(--border);display:flex;align-items:stretch;z-index:20}
+    .nav-btn{flex:1;border:none;background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-family:inherit;font-size:10px;font-weight:500;color:var(--text2);cursor:pointer;-webkit-tap-highlight-color:transparent;padding-top:8px}
+    .nav-btn svg{width:22px;height:22px;stroke:var(--text2);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+    .nav-btn.active{color:var(--accent)}
+    .nav-btn.active svg{stroke:var(--accent)}
+
+    /* Cards & rows */
+    .section{margin:0 1.25rem .25rem}
+    .section-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.09em;color:var(--text2);padding:.75rem 0 .4rem}
+    .card{background:var(--card);border-radius:14px;overflow:hidden;border:1px solid var(--border)}
+    .row{display:flex;align-items:center;padding:.75rem 1rem;border-bottom:1px solid var(--border);gap:.75rem}
+    .row:last-child{border-bottom:none}
+    .row-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+    .row-label{flex:1;font-size:15px;color:var(--text)}
+    .row-label small{display:block;font-size:11px;color:var(--text2);margin-top:1px}
+    .row-value{font-size:15px;font-weight:500}
+    .editable{cursor:pointer;-webkit-tap-highlight-color:transparent}
+    .editable:active{opacity:.55}
+
+    /* Hero */
+    .hero{margin:0 1.25rem 1rem;border-radius:18px;padding:1.25rem 1.5rem}
+    .hero.positive{background:var(--green-bg)}
+    .hero.negative{background:var(--red-bg)}
+    .hero-label{font-size:13px;font-weight:500;color:var(--text2);margin-bottom:2px}
+    .hero-amount{font-size:52px;font-weight:700;letter-spacing:-2px;line-height:1}
+    .hero.positive .hero-amount{color:var(--green)}
+    .hero.negative .hero-amount{color:var(--red)}
+    .hero-sub{margin-top:.5rem;font-size:13px;color:var(--text2);display:flex;gap:1rem}
+
+    /* Bar */
+    .bar-wrap{margin:0 1.25rem 1.25rem;height:5px;background:var(--border);border-radius:3px;overflow:hidden;display:flex;gap:1.5px}
+    .bar-seg{height:100%;border-radius:2px}
+    .legend{display:flex;flex-wrap:wrap;gap:6px 12px;margin:0 1.25rem 1.25rem}
+    .legend-item{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2)}
+    .legend-dot{width:7px;height:7px;border-radius:50%}
+
+    /* Banner */
+    .banner{margin:0 1.25rem 1rem;background:#FFF8E6;border:1px solid #F0D070;border-radius:12px;padding:.7rem 1rem;display:flex;align-items:center;gap:.6rem;font-size:13px;color:#7A6010;cursor:pointer}
+
+    /* Income row */
+    .income-row{display:flex;align-items:center;padding:.75rem 1rem;gap:.75rem}
+    .income-label{flex:1;font-size:15px;font-weight:600}
+    .income-value{font-size:15px;font-weight:600;color:var(--accent)}
+
+    /* Log month nav */
+    .month-nav{display:flex;align-items:center;justify-content:space-between;margin:0 1.25rem .75rem;background:var(--card);border:1px solid var(--border);border-radius:14px;padding:.6rem .75rem}
+    .month-nav-btn{background:none;border:none;font-size:20px;color:var(--text2);cursor:pointer;padding:.2rem .5rem;-webkit-tap-highlight-color:transparent}
+    .month-nav-btn:active{opacity:.5}
+    .month-nav-center{text-align:center}
+    .month-nav-label{font-size:16px;font-weight:600}
+    .period-sub{font-size:11px;color:var(--text2);margin-top:1px}
+    .month-badge{font-size:11px;font-weight:600;margin-top:2px}
+    .badge-ok{color:var(--green)}
+    .badge-missing{color:var(--text2)}
+
+    /* Log summary */
+    .log-summary{margin:.75rem 1.25rem 1.5rem;background:var(--card);border:1px solid var(--border);border-radius:14px;padding:1rem;display:grid;grid-template-columns:1fr 1fr 1fr;gap:.5rem}
+    .sum-item{text-align:center}
+    .sum-item-label{font-size:11px;color:var(--text2);margin-bottom:2px}
+    .sum-item-val{font-size:16px;font-weight:600}
+    .diff-ok{color:var(--green)}
+    .diff-over{color:var(--red)}
+
+    /* Analys */
+    .analys-toggle-wrap{display:flex;margin:0 1.25rem 1rem;gap:.5rem}
+    .toggle-btn{flex:1;padding:.55rem;border:1px solid var(--border);border-radius:10px;background:transparent;font-family:inherit;font-size:13px;font-weight:500;color:var(--text2);cursor:pointer;-webkit-tap-highlight-color:transparent}
+    .toggle-btn.active{background:var(--accent);color:white;border-color:var(--accent)}
+    .analys-meta{margin:0 1.25rem .75rem;font-size:12px;color:var(--text2)}
+    .analys-summary{margin:0 1.25rem .25rem;background:var(--card);border:1px solid var(--border);border-radius:14px;display:grid;grid-template-columns:1fr 1fr 1fr}
+    .a-sum-item{padding:.9rem .5rem;text-align:center}
+    .a-sum-item+.a-sum-item{border-left:1px solid var(--border)}
+    .a-sum-label{font-size:11px;color:var(--text2);margin-bottom:3px}
+    .a-sum-val{font-size:15px;font-weight:600}
+    .analys-header{display:flex;padding:.5rem 1rem;gap:.5rem;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text2)}
+    .a-row{display:flex;align-items:center;padding:.7rem 1rem;border-bottom:1px solid var(--border);gap:.5rem}
+    .a-row:last-child{border-bottom:none}
+    .a-row-label{flex:1;font-size:13px;display:flex;align-items:center;gap:6px}
+    .a-col{width:58px;text-align:right;font-size:13px;font-weight:500;flex-shrink:0}
+    .a-col-head{width:58px;text-align:right;flex-shrink:0}
+    .trend-legend{display:flex;gap:12px;margin:.6rem 1.25rem 0;flex-wrap:wrap}
+    .trend-legend-item{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2)}
+    .trend-dot{width:8px;height:8px;border-radius:2px;flex-shrink:0}
+
+    /* Settings */
+    .settings-sub{display:none}
+    .settings-sub.active{display:block}
+    .back-btn{display:flex;align-items:center;gap:.3rem;padding:.75rem 1.25rem 0;color:var(--accent);font-size:15px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+    .back-btn:active{opacity:.6}
+    .row-chevron{font-size:18px;color:var(--text2);font-weight:300}
+    .row-btns{display:flex;gap:0;flex-shrink:0}
+    .row-btn{background:none;border:none;font-size:18px;padding:4px 8px;cursor:pointer;color:var(--text2);-webkit-tap-highlight-color:transparent;line-height:1}
+    .row-btn:active{opacity:.5}
+    .row-btn.danger{color:var(--red)}
+    .type-badge{font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;white-space:nowrap;flex-shrink:0;text-transform:uppercase;letter-spacing:.04em}
+    .type-badge.fixed{background:#EEF4FF;color:#4F46E5}
+    .type-badge.variable{background:#EAF5EE;color:#1A7A4A}
+    .type-badge.log-only{background:#FFF3E0;color:#B45309}
+    .add-row{display:flex;align-items:center;padding:.8rem 1rem;cursor:pointer;-webkit-tap-highlight-color:transparent;color:var(--accent);font-size:15px;font-weight:500;gap:.4rem}
+    .sugg-row{display:flex;align-items:center;padding:.75rem 1rem;border-bottom:1px solid var(--border);gap:.75rem;cursor:pointer;-webkit-tap-highlight-color:transparent}
+    .sugg-row:last-child{border-bottom:none}
+    .sugg-check{width:20px;height:20px;border-radius:6px;border:1.5px solid var(--border);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:13px;color:white}
+    .sugg-check.checked{background:var(--accent);border-color:var(--accent)}
+    .sugg-label{flex:1;font-size:15px}
+    .sugg-label small{display:block;font-size:11px;color:var(--text2);margin-top:1px}
+    .add-row:active{opacity:.6}
+    .danger-section{margin:1.5rem 1.25rem .5rem}
+    .danger-btn{width:100%;background:transparent;border:1.5px solid var(--red);color:var(--red);border-radius:12px;font-size:15px;font-weight:600;padding:.75rem;cursor:pointer;font-family:inherit}
+    .danger-btn:active{opacity:.7}
+
+    /* Type row in subcat modal */
+    .type-row{display:flex;gap:.5rem;margin-bottom:1rem}
+    .type-btn{flex:1;padding:.5rem .2rem;border:1.5px solid var(--border);border-radius:10px;background:transparent;font-family:inherit;font-size:11px;font-weight:600;color:var(--text2);cursor:pointer;-webkit-tap-highlight-color:transparent;line-height:1.3}
+    .type-btn.sel{border-color:var(--accent);background:var(--accent);color:white}
+    .text-input{flex:1;font-size:22px;font-weight:600;border:none;background:transparent;color:var(--text);outline:none;width:100%;font-family:inherit}
+
+    /* Modals */
+    .overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100;display:flex;align-items:flex-end;opacity:0;pointer-events:none;transition:opacity .2s}
+    .overlay.open{opacity:1;pointer-events:all}
+    .modal{background:var(--card);border-radius:20px 20px 0 0;padding:1.25rem 1.5rem calc(1.5rem + var(--safe-bottom));width:100%;transform:translateY(100%);transition:transform .25s cubic-bezier(.32,.72,0,1)}
+    .overlay.open .modal{transform:translateY(0)}
+    .modal-handle{width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 1rem}
+    .modal-title{font-size:13px;color:var(--text2);font-weight:500;margin-bottom:.75rem;text-align:center}
+    .modal-input-wrap{display:flex;align-items:center;gap:.5rem;background:var(--bg);border-radius:12px;padding:.75rem 1rem;margin-bottom:1rem}
+    .modal-input{flex:1;font-size:28px;font-weight:600;border:none;background:transparent;color:var(--text);outline:none;width:100%;font-family:inherit}
+    .modal-currency{font-size:18px;color:var(--text2);font-weight:500}
+    .modal-btn{width:100%;background:var(--accent);color:white;border:none;border-radius:12px;font-size:16px;font-weight:600;padding:.875rem;cursor:pointer;font-family:inherit}
+    .modal-btn:active{opacity:.85}
+    .cancel-btn{width:100%;background:transparent;border:1.5px solid var(--border);color:var(--text);border-radius:12px;font-size:15px;font-weight:500;padding:.75rem;cursor:pointer;font-family:inherit;margin-top:.5rem}
+    .cancel-btn:active{opacity:.7}
+    .delete-warning{font-size:14px;color:var(--text2);text-align:center;margin-bottom:1rem;line-height:1.5;padding:0 .5rem}
+
+    .empty-state{text-align:center;padding:3rem 2rem}
+    .empty-icon{font-size:48px;margin-bottom:1rem}
+    .empty-title{font-size:17px;font-weight:600;margin-bottom:.5rem}
+    .empty-text{font-size:14px;color:var(--text2);line-height:1.5}
+    .pb{padding-bottom:1.5rem}
+  </style>
+</head>
+<body>
+
+<!-- ===== BUDGET ===== -->
+<div id="page-budget" class="page active">
+  <div class="page-header">
+    <span class="app-title">Budget Pro</span>
+    <span class="sub-label" id="b-month-label"></span>
+  </div>
+  <div class="hero positive" id="b-hero">
+    <div class="hero-label">Kvar denna månad</div>
+    <div class="hero-amount" id="b-hero-amount">—</div>
+    <div class="hero-sub">
+      <span>Utgifter: <strong id="b-total">—</strong></span>
+      <span>Inkomst: <strong id="b-income-sub">—</strong></span>
+    </div>
+  </div>
+  <div class="bar-wrap" id="b-bar"></div>
+  <div class="legend" id="b-legend"></div>
+  <div class="banner" id="b-banner" style="display:none" onclick="showPage('logg')">
+    <span>📝</span><span>Du har inte loggat <strong id="b-banner-month"></strong> än — tryck här</span>
+  </div>
+  <div class="section">
+    <div class="section-label">Inkomst</div>
+    <div class="card">
+      <div class="income-row">
+        <span class="income-label">Månadslön (netto)</span>
+        <span class="income-value editable" onclick="openNumModal('income','Inkomst')">
+          <span id="b-income">—</span> kr
+        </span>
+      </div>
+    </div>
+  </div>
+  <div id="b-categories"></div>
+  <div class="pb"></div>
+</div>
+
+<!-- ===== LOGG ===== -->
+<div id="page-logg" class="page">
+  <div class="page-header">
+    <span class="app-title">Utfall</span>
+    <span class="sub-label">faktisk spending</span>
+  </div>
+  <div class="month-nav">
+    <button class="month-nav-btn" onclick="changeLogMonth(-1)">‹</button>
+    <div class="month-nav-center">
+      <div class="month-nav-label" id="log-month-label">—</div>
+      <div class="period-sub" id="log-period-sub"></div>
+      <div class="month-badge" id="log-badge"></div>
+    </div>
+    <button class="month-nav-btn" id="log-next-btn" onclick="changeLogMonth(1)">›</button>
+  </div>
+  <div class="log-summary">
+    <div class="sum-item"><div class="sum-item-label">Utfall</div><div class="sum-item-val" id="log-total">0 kr</div></div>
+    <div class="sum-item"><div class="sum-item-label">Budget</div><div class="sum-item-val" id="log-budget-total">0 kr</div></div>
+    <div class="sum-item"><div class="sum-item-label">Differens</div><div class="sum-item-val" id="log-diff">0 kr</div></div>
+  </div>
+  <div id="log-categories"></div>
+  <div class="pb"></div>
+</div>
+
+<!-- ===== ANALYS ===== -->
+<div id="page-analys" class="page">
+  <div class="page-header">
+    <span class="app-title">Analys</span>
+    <span class="sub-label">budget vs. utfall</span>
+  </div>
+  <div id="analys-content"></div>
+  <div class="pb"></div>
+</div>
+
+<!-- ===== INSTÄLLNINGAR ===== -->
+<div id="page-settings" class="page">
+  <div class="page-header">
+    <span class="app-title">Inställningar</span>
+  </div>
+
+  <!-- Sub-view: category list -->
+  <div class="settings-sub active" id="settings-list">
+    <div class="section">
+      <div class="section-label">Kategorier</div>
+      <div id="cats-list-card" class="card"></div>
+    </div>
+    <div class="section">
+      <div class="section-label">Förslag på kategorier</div>
+      <div id="suggested-card" class="card"></div>
+      <div id="suggested-add-wrap" style="margin-top:.6rem;display:none">
+        <button class="modal-btn" onclick="addSuggestedCats()">Lägg till valda</button>
+      </div>
+    </div>
+    <div class="pb"></div>
+  </div>
+
+  <!-- Sub-view: category editor -->
+  <div class="settings-sub" id="settings-cat">
+    <div class="back-btn" onclick="closeCatEditor()">‹ Kategorier</div>
+    <div class="section">
+      <div class="section-label">Kategorinamn</div>
+      <div class="card">
+        <div class="row editable" onclick="openRenameCat()">
+          <span class="row-dot" id="ce-dot"></span>
+          <span class="row-label" id="ce-name">—</span>
+          <span style="font-size:13px;color:var(--text2)">✎</span>
+        </div>
+      </div>
+    </div>
+    <div class="section">
+      <div class="section-label">Underkategorier</div>
+      <div class="card" id="ce-subcats"></div>
+    </div>
+    <div class="danger-section">
+      <button class="danger-btn" onclick="confirmDeleteCat()">Ta bort kategori</button>
+    </div>
+    <div class="pb"></div>
+  </div>
+</div>
+
+<!-- BOTTOM NAV -->
+<nav class="bottom-nav">
+  <button class="nav-btn active" id="btn-budget" onclick="showPage('budget')">
+    <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>Budget
+  </button>
+  <button class="nav-btn" id="btn-logg" onclick="showPage('logg')">
+    <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>Logg
+  </button>
+  <button class="nav-btn" id="btn-analys" onclick="showPage('analys')">
+    <svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Analys
+  </button>
+  <button class="nav-btn" id="btn-settings" onclick="showPage('settings')">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Inställn.
+  </button>
+</nav>
+
+<!-- MODAL: number input (budget values) -->
+<div class="overlay" id="num-overlay" onclick="closeNumOverlay(event)">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="num-title">Ändra belopp</div>
+    <div class="modal-input-wrap">
+      <input class="modal-input" id="num-input" type="number" inputmode="numeric" min="0">
+      <span class="modal-currency">kr</span>
+    </div>
+    <button class="modal-btn" onclick="saveNumModal()">Spara</button>
+  </div>
+</div>
+
+<!-- MODAL: text input + type selector (subcat / category rename) -->
+<div class="overlay" id="text-overlay" onclick="closeTextOverlay(event)">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="text-title">Namn</div>
+    <div class="modal-input-wrap">
+      <input class="text-input" id="text-input" type="text" placeholder="Namn...">
+    </div>
+    <div class="type-row" id="type-row">
+      <button class="type-btn" onclick="selType('fixed')">Fast</button>
+      <button class="type-btn" onclick="selType('variable')">Variabel</button>
+      <button class="type-btn" onclick="selType('log-only')">Enbart logg</button>
+    </div>
+    <button class="modal-btn" onclick="saveTextModal()">Spara</button>
+  </div>
+</div>
+
+<!-- MODAL: delete confirmation -->
+<div class="overlay" id="del-overlay" onclick="closeDelOverlay(event)">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="del-title">Ta bort?</div>
+    <div class="delete-warning" id="del-warning"></div>
+    <button class="modal-btn" style="background:var(--red)" onclick="executeDelete()">Ja, ta bort</button>
+    <button class="cancel-btn" onclick="closeDelOverlay()">Avbryt</button>
+  </div>
+</div>
+
+<script>
+// ======= CONSTANTS =======
+const PALETTE = ['#6C63D4','#C0506A','#1D9968','#D05A2A','#7A7870','#3070C4','#4A8C1A','#9B59B6','#E67E22','#1ABC9C','#E74C3C','#3498DB','#F39C12','#16A085'];
+const MONTHS_FULL  = ['Januari','Februari','Mars','April','Maj','Juni','Juli','Augusti','September','Oktober','November','December'];
+const MONTHS_SHORT = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
+const CATS_KEY = 'cats-v2', BUDGET_KEY = 'budget-v1', LOG_KEY = 'log-v1';
+
+const DEFAULT_CATS = [
+  {id:'boende',   label:'Boende & fasta utgifter', color:'#6C63D4',subcats:[
+    {id:'rent',    label:'Hyra',         note:null,type:'fixed'},
+    {id:'bankfee', label:'Bankavgift',   note:'t.ex. Vardagspaket',type:'fixed'}]},
+  {id:'skulder',  label:'Skulder',   color:'#C0506A',subcats:[
+    {id:'csn',    label:'Lånåterbetalning', note:'t.ex. CSN',type:'fixed'}]},
+  {id:'transport',label:'Transport', color:'#1D9968',subcats:[
+    {id:'fuel',   label:'Bensin',                    note:null,type:'variable'},
+    {id:'parking',label:'Parkering & trängselskatt', note:null,type:'variable'},
+    {id:'ins',    label:'Bilförsäkring',             note:null,type:'fixed'},
+    {id:'serv',   label:'Service & däck',            note:'månadsavsättning',type:'fixed'}]},
+  {id:'mat',      label:'Mat',color:'#D05A2A',subcats:[
+    {id:'food',   label:'Dagligvaror',         note:null,type:'variable'},
+    {id:'resto',  label:'Restaurang & uteliv', note:null,type:'variable'},
+    {id:'snacks', label:'Fika & snacks',       note:null,type:'variable'}]},
+  {id:'noje',     label:'Nöje & fritid',color:'#7A7870',subcats:[
+    {id:'leisure', label:'Nöje & fritid', note:null,type:'variable'},
+    {id:'shopping',label:'Shopping',      note:null,type:'variable'}]},
+  {id:'abonn',    label:'Abonnemang & försäkring', color:'#3070C4',subcats:[
+    {id:'phone',   label:'Telefon',           note:null,type:'fixed'},
+    {id:'homeins', label:'Försäkringar',      note:'hem/sjuk',type:'fixed'},
+    {id:'subs',    label:'Övriga abonnemang', note:null,type:'fixed'}]},
+  {id:'ovrigt',   label:'Övrigt',    color:'#4A8C1A',subcats:[
+    {id:'swish',      label:'Swish',       note:null,type:'log-only'},
+    {id:'unexpected', label:'Oförutsedda', note:null,type:'log-only'}]},
+  {id:'sparande', label:'Sparande',  color:'#9B59B6',subcats:[
+    {id:'vacation',label:'Semester',         note:null,type:'fixed'},
+    {id:'save',    label:'Långsiktigt spar', note:null,type:'fixed'}]},
+];
+
+const DEFAULTS_BUDGET = {income:0,rent:0,bankfee:0,csn:0,fuel:0,parking:0,ins:0,serv:0,food:0,resto:0,snacks:0,leisure:0,shopping:0,phone:0,homeins:0,subs:0,vacation:0,save:0};
+
+// Suggested categories the user can opt into adding via Settings
+const SUGGESTED_CATS = [
+  {label:'Hälsa & träning', subcats:[
+    {label:'Gym/träningskort', type:'fixed'},
+    {label:'Sjukvård & tandvård', type:'variable'}]},
+  {label:'Husdjur', subcats:[
+    {label:'Mat & tillbehör', type:'variable'},
+    {label:'Veterinär', type:'log-only'}]},
+  {label:'Barn', subcats:[
+    {label:'Förskola/fritids', type:'fixed'},
+    {label:'Kläder & utrustning', type:'variable'}]},
+  {label:'Boendetillägg', subcats:[
+    {label:'Möbler & inredning', type:'variable'},
+    {label:'Reparationer', type:'log-only'}]},
+  {label:'Presenter & gåvor', subcats:[
+    {label:'Presenter', type:'variable'}]},
+];
+
+// ======= STATE =======
+let cats=[],budget={},log={};
+let currentLogMonth=null;
+let analysView='detailed';
+let editingCatId=null;
+let numCtx=null;   // {key, scope:'budget'|'log'}
+let textCtx=null;  // {mode:'rename-cat'|'add-cat'|'add-subcat'|'edit-subcat', catId, subcatId, selectedType}
+let delCtx=null;   // {type:'cat'|'subcat', catId, subcatId}
+
+// ======= LOAD / SAVE =======
+function loadAll(){
+  try{cats=JSON.parse(localStorage.getItem(CATS_KEY))||DEFAULT_CATS;}catch(e){cats=JSON.parse(JSON.stringify(DEFAULT_CATS));}
+  if(!cats||!cats.length)cats=JSON.parse(JSON.stringify(DEFAULT_CATS));
+  try{budget={...DEFAULTS_BUDGET,...JSON.parse(localStorage.getItem(BUDGET_KEY)||'{}')}}catch(e){budget={...DEFAULTS_BUDGET}}
+  try{log=JSON.parse(localStorage.getItem(LOG_KEY)||'{}')}catch(e){log={}}
+  pruneLog();
+}
+function saveCats(){localStorage.setItem(CATS_KEY,JSON.stringify(cats))}
+function saveBudget(){localStorage.setItem(BUDGET_KEY,JSON.stringify(budget))}
+function saveLog(){localStorage.setItem(LOG_KEY,JSON.stringify(log))}
+function pruneLog(){
+  const cutoff=new Date();cutoff.setMonth(cutoff.getMonth()-12);
+  const ck=toKey(cutoff);
+  Object.keys(log).forEach(k=>{if(k<ck)delete log[k]});
+  saveLog();
+}
+
+// ======= UTILS =======
+function toKey(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')}
+function thisMonth(){return toKey(new Date())}
+function periodComplete(k){const[y,m]=k.split('-').map(Number);return new Date()>new Date(y,m-1,25,23,59,59)}
+function keyLabel(k){const[y,m]=k.split('-');return MONTHS_FULL[+m-1]+' '+y}
+function periodLabel(k){const[,m]=k.split('-').map(Number);return`25 ${MONTHS_SHORT[(m-2+12)%12]} – 25 ${MONTHS_SHORT[m-1]}`}
+function fmt(n){return Math.round(n||0).toLocaleString('sv-SE')}
+function uid(){return 'u'+Date.now().toString(36)+Math.random().toString(36).slice(2,5)}
+function nextColor(){const used=cats.map(c=>c.color);return PALETTE.find(c=>!used.includes(c))||PALETTE[cats.length%PALETTE.length]}
+
+// Derived helpers
+function getBudgetSubcats(){return cats.flatMap(cat=>cat.subcats.filter(s=>s.type!=='log-only').map(s=>({...s,catColor:cat.color,catLabel:cat.label})))}
+function getLogSubcats(){return cats.flatMap(cat=>cat.subcats.filter(s=>s.type!=='fixed').map(s=>({...s,catColor:cat.color,catLabel:cat.label})))}
+function getCat(catId){return cats.find(c=>c.id===catId)}
+function availableForVariable(){
+  const fixedTotal=cats.flatMap(c=>c.subcats).filter(s=>s.type==='fixed').reduce((s,sc)=>s+(budget[sc.id]||0),0);
+  return (budget.income||0)-fixedTotal;
+}
+function getSubcat(catId,subcatId){return getCat(catId)?.subcats.find(s=>s.id===subcatId)}
+function typeLabel(t){return t==='fixed'?'Fast':t==='variable'?'Variabel':'Enbart logg'}
+
+// ======= PAGE SWITCHING =======
+function showPage(name){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('page-'+name).classList.add('active');
+  document.getElementById('btn-'+name).classList.add('active');
+  if(name==='budget')  renderBudget();
+  if(name==='logg')    renderLogg();
+  if(name==='analys')  renderAnalys();
+  if(name==='settings')renderSettings();
+}
+
+// ======= BUDGET TAB =======
+function renderBudget(){
+  const income=budget.income;
+  const budgetSubcats=getBudgetSubcats();
+  const total=budgetSubcats.reduce((s,c)=>s+(budget[c.id]||0),0);
+  const left=income-total;
+  document.getElementById('b-income').textContent=fmt(income);
+  document.getElementById('b-hero-amount').textContent=fmt(left)+' kr';
+  document.getElementById('b-total').textContent=fmt(total)+' kr';
+  document.getElementById('b-income-sub').textContent=fmt(income)+' kr';
+  document.getElementById('b-hero').className='hero '+(left>=0?'positive':'negative');
+
+  // Bar & legend
+  const bar=document.getElementById('b-bar'),leg=document.getElementById('b-legend');
+  bar.innerHTML='';leg.innerHTML='';
+  cats.forEach(cat=>{
+    const st=cat.subcats.filter(s=>s.type!=='log-only').reduce((s,sc)=>s+(budget[sc.id]||0),0);
+    if(!st)return;
+    const d=document.createElement('div');d.className='bar-seg';
+    d.style.cssText=`width:${Math.max(0,(st/income)*100).toFixed(1)}%;background:${cat.color}`;
+    bar.appendChild(d);
+    leg.innerHTML+=`<div class="legend-item"><span class="legend-dot" style="background:${cat.color}"></span>${cat.label}: ${fmt(st)} kr</div>`;
+  });
+
+  // Banner
+  const tm=thisMonth();
+  document.getElementById('b-banner').style.display=log[tm]?'none':'flex';
+  document.getElementById('b-banner-month').textContent=keyLabel(tm);
+
+  // Categories
+  let html='';
+  cats.forEach(cat=>{
+    const sub=cat.subcats.filter(s=>s.type!=='log-only');
+    if(!sub.length)return;
+    html+=`<div class="section"><div class="section-label">${cat.label}</div><div class="card">`;
+    sub.forEach(sc=>{
+      html+=`<div class="row">
+        <span class="row-dot" style="background:${cat.color}"></span>
+        <span class="row-label">${sc.label}${sc.note?`<small>${sc.note}</small>`:''}</span>
+        <span class="row-value editable" onclick="openNumModal('${sc.id}','${sc.label}')">
+          <span id="b-${sc.id}">${fmt(budget[sc.id])}</span> kr
+        </span>
+      </div>`;
+    });
+    html+=`</div></div>`;
+  });
+  document.getElementById('b-categories').innerHTML=html;
+}
+
+// ======= LOGG TAB =======
+function renderLogg(){
+  if(!currentLogMonth)currentLogMonth=thisMonth();
+  const entry=log[currentLogMonth]||{};
+  const isLogged=!!log[currentLogMonth];
+  const isCurrent=currentLogMonth===thisMonth();
+  const logSubs=getLogSubcats();
+  const logBudgetTotal=availableForVariable();
+  const logTotal=logSubs.reduce((s,c)=>s+(entry[c.id]||0),0);
+  const diff=logTotal-logBudgetTotal;
+
+  document.getElementById('log-month-label').textContent=keyLabel(currentLogMonth);
+  document.getElementById('log-period-sub').textContent=periodLabel(currentLogMonth);
+  document.getElementById('log-badge').textContent=isLogged?'✓ Sparad':'Inte loggad ännu';
+  document.getElementById('log-badge').className='month-badge '+(isLogged?'badge-ok':'badge-missing');
+  document.getElementById('log-next-btn').style.opacity=isCurrent?'0.25':'1';
+  document.getElementById('log-total').textContent=fmt(logTotal)+' kr';
+  document.getElementById('log-budget-total').textContent=fmt(logBudgetTotal)+' kr';
+  const dEl=document.getElementById('log-diff');
+  dEl.textContent=(diff>=0?'+':'')+fmt(diff)+' kr';
+  dEl.className='sum-item-val '+(diff<=0?'diff-ok':'diff-over');
+
+  let html='';
+  cats.forEach(cat=>{
+    const sub=cat.subcats.filter(s=>s.type!=='fixed');
+    if(!sub.length)return;
+    html+=`<div class="section"><div class="section-label">${cat.label}</div><div class="card">`;
+    sub.forEach(sc=>{
+      const bv=sc.type==='log-only'?null:(budget[sc.id]||0);
+      html+=`<div class="row">
+        <span class="row-dot" style="background:${cat.color}"></span>
+        <span class="row-label">${sc.label}${bv!==null?`<small>budget: ${fmt(bv)} kr</small>`:'<small>ingen budget</small>'}</span>
+        <span class="row-value editable" onclick="openNumModal('${sc.id}','${sc.label}','log')">
+          <span id="lv-${sc.id}">${fmt(entry[sc.id])}</span> kr
+        </span>
+      </div>`;
+    });
+    html+=`</div></div>`;
+  });
+  document.getElementById('log-categories').innerHTML=html;
+}
+
+function changeLogMonth(delta){
+  const[y,m]=currentLogMonth.split('-').map(Number);
+  const nk=toKey(new Date(y,m-1+delta,1));
+  if(nk>thisMonth())return;
+  currentLogMonth=nk;renderLogg();
+}
+
+// ======= ANALYS TAB =======
+function renderAnalys(){
+  const keys=Object.keys(log).sort().filter(periodComplete);
+  const container=document.getElementById('analys-content');
+  if(!keys.length){
+    container.innerHTML=`<div class="empty-state"><div class="empty-icon">📊</div><div class="empty-title">Ingen data än</div><div class="empty-text">Logga månader i Logg-fliken. Månader räknas med efter den 25:e.</div></div>`;
+    return;
+  }
+  const n=keys.length;
+  const logSubs=getLogSubcats();
+  const avgs={};
+  logSubs.forEach(sc=>{
+    const vals=keys.map(k=>log[k]?.[sc.id]||0).filter(v=>v>0);
+    avgs[sc.id]=vals.length?vals.reduce((s,v)=>s+v,0)/vals.length:0;
+  });
+  const budgTotal=logSubs.filter(s=>s.type!=='log-only').reduce((s,c)=>s+(budget[c.id]||0),0);
+  const avgTotal=logSubs.reduce((s,c)=>s+(avgs[c.id]||0),0);
+  const totalDiff=avgTotal-budgTotal;
+  const range=n===1?keyLabel(keys[0]):keyLabel(keys[0])+' – '+keyLabel(keys[n-1]);
+
+  let html=`
+    <div class="analys-meta">Baserat på ${n} månad${n!==1?'er':''} (${range})</div>
+    <div class="analys-summary">
+      <div class="a-sum-item"><div class="a-sum-label">Budget/mån</div><div class="a-sum-val">${fmt(budgTotal)} kr</div></div>
+      <div class="a-sum-item"><div class="a-sum-label">Snitt utfall</div><div class="a-sum-val">${fmt(avgTotal)} kr</div></div>
+      <div class="a-sum-item"><div class="a-sum-label">Differens</div><div class="a-sum-val ${totalDiff<=0?'diff-ok':'diff-over'}">${totalDiff>=0?'+':''}${fmt(totalDiff)} kr</div></div>
+    </div>
+    <div class="analys-toggle-wrap">
+      <button class="toggle-btn ${analysView==='detailed'?'active':''}" onclick="setAnalysView('detailed')">Detaljerad</button>
+      <button class="toggle-btn ${analysView==='grouped'?'active':''}" onclick="setAnalysView('grouped')">Samlad</button>
+    </div>`;
+
+  if(analysView==='detailed'){
+    cats.forEach(cat=>{
+      const sub=cat.subcats.filter(s=>s.type!=='fixed');
+      if(!sub.length)return;
+      html+=`<div class="section"><div class="section-label">${cat.label}</div><div class="card">
+        <div class="analys-header"><span style="flex:1">Kategori</span><span class="a-col-head">Budget</span><span class="a-col-head">Snitt</span><span class="a-col-head">Diff</span></div>`;
+      sub.forEach(sc=>{
+        const bv=sc.type==='log-only'?null:(budget[sc.id]||0);
+        const av=avgs[sc.id]||0;
+        const diff=bv!==null?av-bv:null;
+        html+=`<div class="a-row">
+          <span class="a-row-label"><span class="row-dot" style="background:${cat.color}"></span>${sc.label}</span>
+          <span class="a-col">${bv!==null?fmt(bv):'—'}</span>
+          <span class="a-col">${fmt(av)}</span>
+          <span class="a-col ${diff!==null?(diff<=0?'diff-ok':'diff-over'):''}">${diff!==null?(diff>=0?'+':'')+fmt(diff):'—'}</span>
+        </div>`;
+      });
+      html+=`</div></div>`;
+    });
+  }else{
+    html+=`<div class="section"><div class="section-label">Per sektion</div><div class="card">
+      <div class="analys-header"><span style="flex:1">Sektion</span><span class="a-col-head">Budget</span><span class="a-col-head">Snitt</span><span class="a-col-head">Diff</span></div>`;
+    cats.forEach(cat=>{
+      const logSub=cat.subcats.filter(s=>s.type!=='fixed');
+      if(!logSub.length)return;
+      const bv=logSub.filter(s=>s.type!=='log-only').reduce((s,sc)=>s+(budget[sc.id]||0),0);
+      const av=logSub.reduce((s,sc)=>s+(avgs[sc.id]||0),0);
+      const diff=av-bv;
+      html+=`<div class="a-row">
+        <span class="a-row-label"><span class="row-dot" style="background:${cat.color}"></span>${cat.label}</span>
+        <span class="a-col">${fmt(bv)}</span>
+        <span class="a-col">${fmt(av)}</span>
+        <span class="a-col ${diff<=0?'diff-ok':'diff-over'}">${diff>=0?'+':''}${fmt(diff)}</span>
+      </div>`;
+    });
+    html+=`</div></div>`;
+  }
+
+  // Trend chart
+  const logCats2=cats.filter(cat=>cat.subcats.some(s=>s.type!=='fixed'));
+  html+=`<div class="section"><div class="section-label">Trend – faktisk spending</div>
+    ${buildTrendChart(keys,logCats2)}
+    <div class="trend-legend">
+      ${logCats2.map(c=>`<div class="trend-legend-item"><span class="trend-dot" style="background:${c.color}"></span>${c.label}</div>`).join('')}
+    </div>
+  </div>`;
+
+  container.innerHTML=html;
+}
+
+function setAnalysView(v){analysView=v;renderAnalys()}
+
+function buildTrendChart(keys,logCats2){
+  if(!keys.length)return'';
+  const W=320,H=150,PL=36,PR=8,PT=8,PB=28;
+  const cW=W-PL-PR,cH=H-PT-PB,n=keys.length;
+  const data=keys.map(k=>{
+    const e=log[k]||{};
+    return logCats2.map(cat=>cat.subcats.filter(s=>s.type!=='fixed').reduce((s,sc)=>s+(e[sc.id]||0),0));
+  });
+  const maxTotal=Math.max(...data.map(d=>d.reduce((s,v)=>s+v,0)),1);
+  const step=cW/n,barW=Math.min(step*.65,28);
+  let svg=`<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:calc(100% - 2.5rem);height:auto;display:block;margin:0 1.25rem">`;
+  for(let i=0;i<=4;i++){
+    const y=PT+cH-(i/4)*cH,v=Math.round((i/4)*maxTotal/1000);
+    svg+=`<line x1="${PL}" y1="${y.toFixed(1)}" x2="${W-PR}" y2="${y.toFixed(1)}" stroke="#E3E2DE" stroke-width=".75"/>`;
+    svg+=`<text x="${PL-4}" y="${(y+3.5).toFixed(1)}" text-anchor="end" font-size="8" fill="#6B6866">${v}k</text>`;
+  }
+  keys.forEach((k,i)=>{
+    const segs=data[i],x=PL+i*step+(step-barW)/2;let yBase=PT+cH;
+    segs.forEach((val,si)=>{
+      if(!val)return;
+      const bh=(val/maxTotal)*cH;yBase-=bh;
+      svg+=`<rect x="${x.toFixed(1)}" y="${yBase.toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" fill="${logCats2[si].color}" rx="2"/>`;
+    });
+    const showLabel=n<=8||i===0||i===n-1||i%Math.ceil(n/6)===0;
+    if(showLabel){const[,m]=k.split('-');svg+=`<text x="${(x+barW/2).toFixed(1)}" y="${H-7}" text-anchor="middle" font-size="8.5" fill="#6B6866">${MONTHS_SHORT[+m-1]}</text>`;}
+  });
+  return svg+'</svg>';
+}
+
+// ======= SETTINGS TAB =======
+let selectedSuggestions=new Set();
+
+function renderSettings(){
+  showSettingsView('list');
+  const card=document.getElementById('cats-list-card');
+  let html='';
+  cats.forEach(cat=>{
+    html+=`<div class="row editable" onclick="openCatEditor('${cat.id}')">
+      <span class="row-dot" style="background:${cat.color}"></span>
+      <span class="row-label">${cat.label}<small>${cat.subcats.length} underkategorier</small></span>
+      <span class="row-chevron">›</span>
+    </div>`;
+  });
+  html+=`<div class="add-row" onclick="addCategory()"><span>+</span> Lägg till kategori</div>`;
+  card.innerHTML=html;
+
+  renderSuggestions();
+}
+
+function renderSuggestions(){
+  const existingLabels=cats.map(c=>c.label.toLowerCase());
+  const available=SUGGESTED_CATS.filter(s=>!existingLabels.includes(s.label.toLowerCase()));
+  const card=document.getElementById('suggested-card');
+  const addWrap=document.getElementById('suggested-add-wrap');
+
+  if(!available.length){
+    card.innerHTML=`<div class="row"><span class="row-label" style="color:var(--text2)">Inga fler förslag just nu</span></div>`;
+    addWrap.style.display='none';
+    return;
+  }
+
+  let html='';
+  available.forEach((s,i)=>{
+    const checked=selectedSuggestions.has(s.label);
+    html+=`<div class="sugg-row" onclick="toggleSuggestion('${s.label}')">
+      <span class="sugg-check ${checked?'checked':''}">${checked?'✓':''}</span>
+      <span class="sugg-label">${s.label}<small>${s.subcats.map(x=>x.label).join(', ')}</small></span>
+    </div>`;
+  });
+  card.innerHTML=html;
+  addWrap.style.display=selectedSuggestions.size?'block':'none';
+}
+
+function toggleSuggestion(label){
+  if(selectedSuggestions.has(label))selectedSuggestions.delete(label);
+  else selectedSuggestions.add(label);
+  renderSuggestions();
+}
+
+function addSuggestedCats(){
+  SUGGESTED_CATS.forEach(s=>{
+    if(!selectedSuggestions.has(s.label))return;
+    cats.push({
+      id:uid(),
+      label:s.label,
+      color:nextColor(),
+      subcats:s.subcats.map(sc=>({id:uid(),label:sc.label,note:null,type:sc.type}))
+    });
+  });
+  selectedSuggestions.clear();
+  saveCats();
+  renderSettings();
+}
+
+function showSettingsView(v){
+  document.getElementById('settings-list').className='settings-sub'+(v==='list'?' active':'');
+  document.getElementById('settings-cat').className='settings-sub'+(v==='cat'?' active':'');
+}
+
+function openCatEditor(catId){
+  editingCatId=catId;
+  renderCatEditor();
+  showSettingsView('cat');
+}
+
+function renderCatEditor(){
+  const cat=getCat(editingCatId);if(!cat)return;
+  document.getElementById('ce-dot').style.background=cat.color;
+  document.getElementById('ce-name').textContent=cat.label;
+  const card=document.getElementById('ce-subcats');
+  let html='';
+  cat.subcats.forEach(sc=>{
+    html+=`<div class="row">
+      <span class="row-dot" style="background:${cat.color}"></span>
+      <span class="row-label">${sc.label}</span>
+      <span class="type-badge ${sc.type}">${typeLabel(sc.type)}</span>
+      <div class="row-btns">
+        <button class="row-btn" onclick="openEditSubcat('${sc.id}')">✎</button>
+        <button class="row-btn danger" onclick="confirmDeleteSubcat('${sc.id}')">✕</button>
+      </div>
+    </div>`;
+  });
+  html+=`<div class="add-row" onclick="openAddSubcat()"><span>+</span> Lägg till underkategori</div>`;
+  card.innerHTML=html;
+}
+
+function closeCatEditor(){editingCatId=null;renderSettings();}
+
+function addCategory(){
+  textCtx={mode:'add-cat',selectedType:null};
+  document.getElementById('text-title').textContent='Ny kategori';
+  document.getElementById('text-input').value='';
+  document.getElementById('type-row').style.display='none';
+  openOverlay('text-overlay');
+  setTimeout(()=>document.getElementById('text-input').focus(),300);
+}
+
+function openRenameCat(){
+  const cat=getCat(editingCatId);if(!cat)return;
+  textCtx={mode:'rename-cat',selectedType:null};
+  document.getElementById('text-title').textContent='Ändra namn';
+  document.getElementById('text-input').value=cat.label;
+  document.getElementById('type-row').style.display='none';
+  openOverlay('text-overlay');
+  setTimeout(()=>document.getElementById('text-input').focus(),300);
+}
+
+function openAddSubcat(){
+  textCtx={mode:'add-subcat',catId:editingCatId,selectedType:'variable'};
+  document.getElementById('text-title').textContent='Ny underkategori';
+  document.getElementById('text-input').value='';
+  document.getElementById('type-row').style.display='flex';
+  updateTypeBtns('variable');
+  openOverlay('text-overlay');
+  setTimeout(()=>document.getElementById('text-input').focus(),300);
+}
+
+function openEditSubcat(subcatId){
+  const sc=getSubcat(editingCatId,subcatId);if(!sc)return;
+  textCtx={mode:'edit-subcat',catId:editingCatId,subcatId,selectedType:sc.type};
+  document.getElementById('text-title').textContent='Redigera underkategori';
+  document.getElementById('text-input').value=sc.label;
+  document.getElementById('type-row').style.display='flex';
+  updateTypeBtns(sc.type);
+  openOverlay('text-overlay');
+  setTimeout(()=>document.getElementById('text-input').focus(),300);
+}
+
+function selType(t){
+  if(!textCtx)return;
+  textCtx.selectedType=t;
+  updateTypeBtns(t);
+}
+
+function updateTypeBtns(t){
+  document.querySelectorAll('.type-btn').forEach(b=>{
+    b.classList.toggle('sel',b.getAttribute('onclick').includes(`'${t}'`));
+  });
+}
+
+function saveTextModal(){
+  const name=document.getElementById('text-input').value.trim();
+  if(!name||!textCtx)return;
+  const ctx=textCtx;
+
+  if(ctx.mode==='add-cat'){
+    cats.push({id:uid(),label:name,color:nextColor(),subcats:[]});
+    saveCats();renderSettings();
+  }else if(ctx.mode==='rename-cat'){
+    const cat=getCat(ctx.catId||editingCatId);
+    if(cat){cat.label=name;saveCats();renderCatEditor();}
+  }else if(ctx.mode==='add-subcat'){
+    const cat=getCat(ctx.catId);
+    if(cat){cat.subcats.push({id:uid(),label:name,note:null,type:ctx.selectedType||'variable'});saveCats();renderCatEditor();}
+  }else if(ctx.mode==='edit-subcat'){
+    const sc=getSubcat(ctx.catId,ctx.subcatId);
+    if(sc){sc.label=name;sc.type=ctx.selectedType||sc.type;saveCats();renderCatEditor();}
+  }
+  closeOverlay('text-overlay');textCtx=null;
+}
+
+function confirmDeleteCat(){
+  const cat=getCat(editingCatId);if(!cat)return;
+  delCtx={type:'cat',catId:editingCatId};
+  document.getElementById('del-title').textContent=`Ta bort "${cat.label}"?`;
+  document.getElementById('del-warning').textContent=`All historik och alla budgetvärden för ${cat.subcats.length} underkategori${cat.subcats.length!==1?'er':''} raderas permanent.`;
+  openOverlay('del-overlay');
+}
+
+function confirmDeleteSubcat(subcatId){
+  const cat=getCat(editingCatId);
+  const sc=getSubcat(editingCatId,subcatId);if(!sc)return;
+  delCtx={type:'subcat',catId:editingCatId,subcatId};
+  document.getElementById('del-title').textContent=`Ta bort "${sc.label}"?`;
+  document.getElementById('del-warning').textContent='All historik och budgetvärde för denna underkategori raderas permanent.';
+  openOverlay('del-overlay');
+}
+
+function executeDelete(){
+  if(!delCtx)return;
+  if(delCtx.type==='cat'){
+    const cat=getCat(delCtx.catId);
+    if(cat){
+      cat.subcats.forEach(sc=>purgeSubcatData(sc.id));
+      cats=cats.filter(c=>c.id!==delCtx.catId);
+      saveCats();saveBudget();saveLog();
+      closeCatEditor();
+    }
+  }else{
+    const cat=getCat(delCtx.catId);
+    if(cat){
+      purgeSubcatData(delCtx.subcatId);
+      cat.subcats=cat.subcats.filter(s=>s.id!==delCtx.subcatId);
+      saveCats();saveBudget();saveLog();
+      renderCatEditor();
+    }
+  }
+  closeOverlay('del-overlay');delCtx=null;
+}
+
+function purgeSubcatData(subcatId){
+  delete budget[subcatId];
+  Object.values(log).forEach(entry=>delete entry[subcatId]);
+}
+
+// ======= NUMBER MODAL =======
+function openNumModal(key,label,scope='budget'){
+  numCtx={key,scope};
+  document.getElementById('num-title').textContent=label;
+  const val=scope==='budget'?(budget[key]||0):(log[currentLogMonth]?.[key]||0);
+  document.getElementById('num-input').value=val||'';
+  openOverlay('num-overlay');
+  setTimeout(()=>document.getElementById('num-input').focus(),300);
+}
+
+function saveNumModal(){
+  if(!numCtx)return;
+  const val=parseInt(document.getElementById('num-input').value)||0;
+  if(numCtx.scope==='budget'){budget[numCtx.key]=val;saveBudget();renderBudget();}
+  else{
+    if(!log[currentLogMonth])log[currentLogMonth]={};
+    log[currentLogMonth][numCtx.key]=val;saveLog();renderLogg();
+  }
+  closeOverlay('num-overlay');numCtx=null;
+}
+
+// ======= OVERLAY HELPERS =======
+function openOverlay(id){document.getElementById(id).classList.add('open')}
+function closeOverlay(id){document.getElementById(id).classList.remove('open')}
+function closeNumOverlay(e){if(e.target===document.getElementById('num-overlay')){closeOverlay('num-overlay');numCtx=null;}}
+function closeTextOverlay(e){if(e.target===document.getElementById('text-overlay')){closeOverlay('text-overlay');textCtx=null;}}
+function closeDelOverlay(e){if(!e||e.target===document.getElementById('del-overlay')){closeOverlay('del-overlay');delCtx=null;}}
+
+document.getElementById('num-input').addEventListener('keydown',e=>{if(e.key==='Enter')saveNumModal()});
+document.getElementById('text-input').addEventListener('keydown',e=>{if(e.key==='Enter')saveTextModal()});
+
+// ======= SWIPE (Logg page month navigation) =======
+(function(){
+  const el=document.getElementById('page-logg');
+  let startX=0,startY=0,tracking=false;
+  el.addEventListener('touchstart',e=>{
+    startX=e.touches[0].clientX;startY=e.touches[0].clientY;tracking=true;
+  },{passive:true});
+  el.addEventListener('touchend',e=>{
+    if(!tracking)return;tracking=false;
+    const dx=e.changedTouches[0].clientX-startX;
+    const dy=e.changedTouches[0].clientY-startY;
+    if(Math.abs(dx)>60&&Math.abs(dx)>Math.abs(dy)*1.5){
+      if(dx<0)changeLogMonth(1); else changeLogMonth(-1);
+    }
+  },{passive:true});
+})();
+
+// ======= BOOT =======
+loadAll();
+const now=new Date();
+document.getElementById('b-month-label').textContent=MONTHS_FULL[now.getMonth()]+' '+now.getFullYear();
+if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+showPage('budget');
+</script>
+</body>
+</html>
