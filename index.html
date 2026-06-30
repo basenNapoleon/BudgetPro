@@ -158,6 +158,36 @@
     .cancel-btn{width:100%;background:transparent;border:1.5px solid var(--border);color:var(--text);border-radius:12px;font-size:15px;font-weight:500;padding:.75rem;cursor:pointer;font-family:inherit;margin-top:.5rem}
     .cancel-btn:active{opacity:.7}
     .delete-warning{font-size:14px;color:var(--text2);text-align:center;margin-bottom:1rem;line-height:1.5;padding:0 .5rem}
+    .num-imported-note{font-size:12px;color:var(--text2);text-align:center;margin:-.4rem 0 .85rem}
+
+    /* CSV import */
+    .import-btn{display:flex;align-items:center;justify-content:center;gap:.5rem;margin:0 1.25rem .75rem;padding:.75rem;background:var(--card);border:1.5px dashed var(--accent);border-radius:14px;color:var(--accent);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent}
+    .import-btn:active{opacity:.6}
+    .import-overlay{align-items:stretch}
+    .import-sheet{background:var(--bg);width:100%;height:100%;display:flex;flex-direction:column;transform:translateY(100%);transition:transform .25s cubic-bezier(.32,.72,0,1)}
+    .import-overlay.open .import-sheet{transform:translateY(0)}
+    .import-header{display:flex;align-items:center;justify-content:space-between;padding:calc(var(--safe-top) + .75rem) 1rem .75rem;border-bottom:1px solid var(--border);background:var(--card);flex-shrink:0}
+    .import-cancel{background:none;border:none;color:var(--accent);font-size:15px;font-family:inherit;cursor:pointer;width:56px;text-align:left;-webkit-tap-highlight-color:transparent}
+    .import-header-title{text-align:center;flex:1}
+    .import-title{font-size:15px;font-weight:700}
+    .import-subtitle{font-size:11px;color:var(--text2);margin-top:1px}
+    .import-list{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch}
+    .import-group-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text2);padding:1rem 1.25rem .4rem}
+    .import-group-note{font-size:12px;color:var(--text2);padding:0 1.25rem .6rem;line-height:1.4}
+    .import-row{display:flex;align-items:center;gap:.6rem;padding:.65rem 1.25rem;border-bottom:1px solid var(--border);background:var(--card)}
+    .import-row-main{flex:1;min-width:0}
+    .import-row-rubrik{font-size:14px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .import-row-date{font-size:11px;color:var(--text2);margin-top:1px}
+    .import-row-amount{font-size:13px;font-weight:600;flex-shrink:0;width:72px;text-align:right}
+    .import-row-cat{flex-shrink:0;padding:.3rem .6rem;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent;white-space:nowrap;max-width:120px;overflow:hidden;text-overflow:ellipsis}
+    .import-row-cat.unknown{background:var(--red-bg);color:var(--red)}
+    .import-row-cat.excluded{background:var(--border);color:var(--text2)}
+    .import-footer{padding:.85rem 1.25rem calc(.85rem + var(--safe-bottom));border-top:1px solid var(--border);background:var(--card);flex-shrink:0}
+    .import-footer-summary{font-size:13px;font-weight:600;text-align:center;margin-bottom:.6rem}
+    .import-cat-list{max-height:55vh;overflow-y:auto;margin-bottom:.75rem}
+    .import-cat-group-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text2);padding:.6rem 0 .3rem}
+    .import-cat-option{display:flex;align-items:center;gap:.6rem;padding:.6rem 0;cursor:pointer;-webkit-tap-highlight-color:transparent;font-size:15px}
+    .import-cat-option:active{opacity:.6}
 
     .empty-state{text-align:center;padding:3rem 2rem}
     .empty-icon{font-size:48px;margin-bottom:1rem}
@@ -208,6 +238,8 @@
     <span class="app-title">Utfall</span>
     <span class="sub-label">faktisk spending</span>
   </div>
+  <input type="file" id="csv-file-input" accept=".csv" style="display:none" onchange="handleImportFile(event)">
+  <button class="import-btn" onclick="openImportPicker()"><span>📂</span><span>Importera CSV</span></button>
   <div class="month-nav">
     <button class="month-nav-btn" onclick="changeLogMonth(-1)">‹</button>
     <div class="month-nav-center">
@@ -303,8 +335,9 @@
   <div class="modal">
     <div class="modal-handle"></div>
     <div class="modal-title" id="num-title">Ändra belopp</div>
+    <div class="num-imported-note" id="num-imported-note" style="display:none"></div>
     <div class="modal-input-wrap">
-      <input class="modal-input" id="num-input" type="number" inputmode="numeric" min="0">
+      <input class="modal-input" id="num-input" type="number" inputmode="numeric">
       <span class="modal-currency">kr</span>
     </div>
     <button class="modal-btn" onclick="saveNumModal()">Spara</button>
@@ -339,12 +372,57 @@
   </div>
 </div>
 
+<!-- MODAL: import review (full screen) -->
+<div class="overlay import-overlay" id="import-overlay">
+  <div class="import-sheet">
+    <div class="import-header">
+      <button class="import-cancel" onclick="cancelImport()">Avbryt</button>
+      <div class="import-header-title">
+        <div class="import-title">Granska import</div>
+        <div class="import-subtitle" id="import-period-label"></div>
+      </div>
+      <div style="width:56px"></div>
+    </div>
+    <div class="import-list" id="import-list"></div>
+    <div class="import-footer">
+      <div class="import-footer-summary" id="import-footer-summary"></div>
+      <button class="modal-btn" onclick="confirmImport()">Spara import</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: pick category for a transaction during import review -->
+<div class="overlay" id="import-cat-overlay" onclick="closeImportCatOverlay(event)">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Välj kategori</div>
+    <div class="import-cat-list" id="import-cat-list"></div>
+    <button class="cancel-btn" onclick="closeOverlay('import-cat-overlay')">Avbryt</button>
+  </div>
+</div>
+
+<!-- MODAL: learn a new merchant rule after recategorizing -->
+<div class="overlay" id="learn-overlay" onclick="closeLearnOverlay(event)">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Kom ihåg butiken?</div>
+    <div class="modal-input-wrap">
+      <input class="text-input" id="learn-pattern-input" type="text" placeholder="Matchningstext...">
+    </div>
+    <div class="delete-warning">Nästa gång en rubrik innehåller detta läggs den automatiskt i <strong id="learn-cat-label"></strong>.</div>
+    <button class="modal-btn" onclick="saveLearnRule()">Spara regel</button>
+    <button class="cancel-btn" onclick="skipLearnRule()">Nej tack</button>
+  </div>
+</div>
+
 <script>
 // ======= CONSTANTS =======
 const PALETTE = ['#6C63D4','#C0506A','#1D9968','#D05A2A','#7A7870','#3070C4','#4A8C1A','#9B59B6','#E67E22','#1ABC9C','#E74C3C','#3498DB','#F39C12','#16A085'];
 const MONTHS_FULL  = ['Januari','Februari','Mars','April','Maj','Juni','Juli','Augusti','September','Oktober','November','December'];
 const MONTHS_SHORT = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
 const CATS_KEY = 'cats-v2', BUDGET_KEY = 'budget-v1', LOG_KEY = 'log-v1';
+const TRANSACTIONS_KEY = 'transactions-v1', CUSTOM_RULES_KEY = 'custom-rules-v1';
+const TX_RETENTION_MONTHS = 4; // hur länge enskilda transaktionsrader sparas (dedup-fönster) — aggregerade loggsummor styrs separat av pruneLog()
 
 const DEFAULT_CATS = [
   {id:'boende',   label:'Boende & fasta utgifter', color:'#6C63D4',subcats:[
@@ -396,8 +474,47 @@ const SUGGESTED_CATS = [
     {label:'Presenter', type:'variable'}]},
 ];
 
+// ======= CSV-IMPORT: BUTIKSDATABAS & KATEGORISERINGSREGLER =======
+// Första träff vinner. Egna inlärda regler (customRules) kollas alltid först.
+const GROCERY = ['ICA MAXI','ICA KVANTUM','ICA SUPERMARKET','ICA NÄRA','ICA NARA','ICA TO GO','ICA','COOP','STORA COOP','COOP KONSUM','COOP XTRA','WILLYS','HEMKÖP','HEMKOP','LIDL','CITY GROSS','TEMPO','MATSMART'];
+const RESTAURANTS = ['MCDONALD','MCD','MAX HAMBURGER','BURGER KING','SIBYLLA','SUBWAY',"O'LEARYS",'OLEARYS','PRESSBYRÅN','PRESSBYRAN','7-ELEVEN','7ELEVEN','ESPRESSO HOUSE','WAYNES COFFEE','PIZZA HUT','KFC','TACO BAR','TACO BELL','STARBUCKS','FOODORA','UBER EATS','WOLT'];
+const GAS_STATIONS = ['PREEM','OKQ8','OK-Q8','CIRCLE K','ST1','INGO','QSTAR','Q-STAR','TANKA','DIN-X','DINX','SHELL','GULF','BILISTEN'];
+const TELECOM = ['TELIA','TELE2','TELENOR','COMVIQ','HALEBOP','HALLON','VIMLA','FELLO','CHILIMOBIL','BAHNHOF'];
+const STREAMING_SUBS = ['NETFLIX','HBO','VIAPLAY','DISNEY+','DISNEYPLUS','SKYSHOWTIME','C MORE','CMORE','TV4 PLAY','AMAZON PRIME','STORYTEL','SPOTIFY','APPLE.COM/BILL','PLAYSTATION','DAZN','AVANZA','NORDNET','MINDLER','KRY','DOKTOR.SE','OVERLEAF'];
+const INSURANCE = ['FOLKSAM','HEDVIG','IF FÖRSÄKRING','IF SKADEFÖRSÄKRING','TRYGG-HANSA','LÄNSFÖRSÄKRINGAR'];
+const SHOPPING_MERCHANTS = ['JULA','BILTEMA','ELGIGANTEN','MEDIA MARKT','MEDIAMARKT','NETONNET','WEBHALLEN','KJELL & COMPANY','KJELL','CLAS OHLSON','TRADERA','SELLPY','IKEA','H&M','LINDEX','KAPPAHL','STADIUM','INTERSPORT','ÅHLÉNS','AHLENS','ZARA','GINA TRICOT'];
+const LEISURE_MERCHANTS = ['SYSTEMBOLAGET','TICKETMASTER','FILMSTADEN','SF BIO','EVENTIM'];
+
+function includesAny(upper, list){ return list.some(s=>upper.includes(s)); }
+
+// Returnerar ett subcat-id (t.ex. 'food'), specialvärdet 'income', eller null (okategoriserad)
+function categorize(rubrik, amount){
+  const upper = rubrik.toUpperCase();
+  for(const r of customRules){
+    if(r.pattern && upper.includes(r.pattern.toUpperCase())) return r.subcatId;
+  }
+  if(upper.includes('CSN')) return 'csn';
+  if(includesAny(upper, GAS_STATIONS)) return Math.abs(amount) < 200 ? 'snacks' : 'fuel';
+  if(includesAny(upper, GROCERY)) return 'food';
+  if(includesAny(upper, RESTAURANTS)) return 'resto';
+  if(includesAny(upper, TELECOM)) return 'phone';
+  if(includesAny(upper, STREAMING_SUBS)) return 'subs';
+  if(includesAny(upper, INSURANCE)) return 'homeins';
+  if(includesAny(upper, SHOPPING_MERCHANTS)) return 'shopping';
+  if(includesAny(upper, LEISURE_MERCHANTS)) return 'leisure';
+  if(upper.startsWith('HYRA')) return 'rent';
+  if(upper.includes('VARDAGSPAKET') || upper.includes('BANKAVGIFT')) return 'bankfee';
+  if(/^SWISH (BETALNING|INBETALNING)/.test(upper)) return 'swish';
+  if(upper==='LÖN' || /ARVODE/.test(upper)) return 'income';
+  return null;
+}
+
 // ======= STATE =======
 let cats=[],budget={},log={};
+let transactions={}; // {period: [{id,dateISO,amount,rubrik,subcatId}]}
+let customRules=[];  // [{id,pattern,subcatId}]
+let importCtx=null;  // {period, items:[{id,dateISO,amount,rubrik,subcatId}], editingId}
+let learnCtx=null;   // {item, subcatId}
 let currentLogMonth=null;
 let analysView='detailed';
 let editingCatId=null;
@@ -422,6 +539,21 @@ function pruneLog(){
   Object.keys(log).forEach(k=>{if(k<ck)delete log[k]});
   saveLog();
 }
+function loadTransactions(){
+  try{transactions=JSON.parse(localStorage.getItem(TRANSACTIONS_KEY)||'{}')}catch(e){transactions={}}
+  pruneTransactions();
+}
+function saveTransactions(){localStorage.setItem(TRANSACTIONS_KEY,JSON.stringify(transactions))}
+function pruneTransactions(){
+  const cutoff=new Date();cutoff.setMonth(cutoff.getMonth()-TX_RETENTION_MONTHS);
+  const ck=toKey(cutoff);
+  Object.keys(transactions).forEach(k=>{if(k<ck)delete transactions[k]});
+  saveTransactions();
+}
+function loadCustomRules(){
+  try{customRules=JSON.parse(localStorage.getItem(CUSTOM_RULES_KEY)||'[]')}catch(e){customRules=[]}
+}
+function saveCustomRules(){localStorage.setItem(CUSTOM_RULES_KEY,JSON.stringify(customRules))}
 
 // ======= UTILS =======
 function toKey(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')}
@@ -443,6 +575,17 @@ function availableForVariable(){
 }
 function getSubcat(catId,subcatId){return getCat(catId)?.subcats.find(s=>s.id===subcatId)}
 function typeLabel(t){return t==='fixed'?'Fast':t==='variable'?'Variabel':'Enbart logg'}
+function subcatMeta(id){
+  for(const cat of cats){
+    const sc=cat.subcats.find(s=>s.id===id);
+    if(sc) return {...sc, catLabel:cat.label, catColor:cat.color};
+  }
+  return null;
+}
+function getImportedSum(period,subcatId){
+  const list=transactions[period]||[];
+  return list.filter(t=>t.subcatId===subcatId).reduce((s,t)=>s+(-t.amount),0);
+}
 
 // ======= PAGE SWITCHING =======
 function showPage(name){
@@ -513,7 +656,7 @@ function renderLogg(){
   const isCurrent=currentLogMonth===thisMonth();
   const logSubs=getLogSubcats();
   const logBudgetTotal=availableForVariable();
-  const logTotal=logSubs.reduce((s,c)=>s+(entry[c.id]||0),0);
+  const logTotal=logSubs.reduce((s,c)=>s+(entry[c.id]||0)+getImportedSum(currentLogMonth,c.id),0);
   const diff=logTotal-logBudgetTotal;
 
   document.getElementById('log-month-label').textContent=keyLabel(currentLogMonth);
@@ -534,11 +677,16 @@ function renderLogg(){
     html+=`<div class="section"><div class="section-label">${cat.label}</div><div class="card">`;
     sub.forEach(sc=>{
       const bv=sc.type==='log-only'?null:(budget[sc.id]||0);
+      const manual=entry[sc.id]||0;
+      const imported=getImportedSum(currentLogMonth,sc.id);
+      const total=manual+imported;
+      const notes=[bv!==null?`budget: ${fmt(bv)} kr`:'ingen budget'];
+      if(imported)notes.push(`varav importerat: ${fmt(imported)} kr`);
       html+=`<div class="row">
         <span class="row-dot" style="background:${cat.color}"></span>
-        <span class="row-label">${sc.label}${bv!==null?`<small>budget: ${fmt(bv)} kr</small>`:'<small>ingen budget</small>'}</span>
+        <span class="row-label">${sc.label}<small>${notes.join(' · ')}</small></span>
         <span class="row-value editable" onclick="openNumModal('${sc.id}','${sc.label}','log')">
-          <span id="lv-${sc.id}">${fmt(entry[sc.id])}</span> kr
+          <span id="lv-${sc.id}">${fmt(total)}</span> kr
         </span>
       </div>`;
     });
@@ -552,6 +700,230 @@ function changeLogMonth(delta){
   const nk=toKey(new Date(y,m-1+delta,1));
   if(nk>thisMonth())return;
   currentLogMonth=nk;renderLogg();
+}
+
+// ======= CSV IMPORT =======
+function parseAmount(raw){
+  return parseFloat(String(raw).replace(/\s/g,'').replace(',', '.'));
+}
+function splitCsvLine(line, sep){
+  const result=[];let cur='';let inQuotes=false;
+  for(let i=0;i<line.length;i++){
+    const ch=line[i];
+    if(ch==='"'){ if(inQuotes && line[i+1]==='"'){cur+='"';i++;} else inQuotes=!inQuotes; }
+    else if(ch===sep && !inQuotes){ result.push(cur); cur=''; }
+    else cur+=ch;
+  }
+  result.push(cur);
+  return result;
+}
+// Nordea-export: UTF-8 BOM, ; som separator, kolumner:
+// Bokföringsdag;Belopp;Avsändare;Mottagare;Namn;Rubrik;Saldo;Valuta
+function parseCSV(text){
+  if(text.charCodeAt(0)===0xFEFF) text=text.slice(1);
+  const lines=text.split(/\r\n|\n|\r/).filter(l=>l.trim().length);
+  if(lines.length<2) return [];
+  const out=[];
+  lines.slice(1).forEach(line=>{
+    const cols=splitCsvLine(line, ';');
+    const dateRaw=(cols[0]||'').trim();
+    const dateParts=dateRaw.split(/[\/\-]/).map(Number);
+    if(dateParts.length!==3||dateParts.some(isNaN))return;
+    const [y,m,d]=dateParts;
+    const dateISO=y+'-'+String(m).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+    const amount=parseAmount(cols[1]||'0');
+    if(isNaN(amount))return;
+    const rubrik=(cols[5]||'').trim();
+    if(!rubrik)return;
+    out.push({dateISO, amount, rubrik});
+  });
+  return out;
+}
+// Period = 25:e föregående månad (exkl.) t.o.m. 25:e denna månad (inkl.)
+function periodRange(key){
+  const [y,m]=key.split('-').map(Number);
+  const start=new Date(y, m-2, 25, 23,59,59);
+  const end=new Date(y, m-1, 25, 23,59,59);
+  return [start,end];
+}
+function isInPeriod(dateISO, key){
+  const d=new Date(dateISO+'T12:00:00');
+  const [start,end]=periodRange(key);
+  return d>start && d<=end;
+}
+function txKey(t){ return t.dateISO+'|'+t.amount+'|'+t.rubrik; }
+
+function openImportPicker(){
+  document.getElementById('csv-file-input').value='';
+  document.getElementById('csv-file-input').click();
+}
+
+function handleImportFile(e){
+  const file=e.target.files[0];
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=function(ev){
+    let rows;
+    try{ rows=parseCSV(ev.target.result); }
+    catch(err){ alert('Kunde inte läsa filen. Kontrollera att det är en CSV-export från Nordea.'); return; }
+    if(!rows.length){ alert('Hittade inga giltiga rader i filen.'); return; }
+    const period=currentLogMonth||thisMonth();
+    const inPeriod=rows.filter(r=>isInPeriod(r.dateISO,period));
+    const existing=transactions[period]||[];
+    const existingKeys=new Set(existing.map(t=>txKey(t)));
+    const fresh=inPeriod.filter(r=>!existingKeys.has(txKey(r)));
+    if(!fresh.length){
+      const skipped=rows.length-inPeriod.length;
+      const dupes=inPeriod.length-fresh.length;
+      alert(`Inga nya transaktioner för ${keyLabel(period)}.\n${skipped} rad(er) låg utanför perioden, ${dupes} var redan importerade.`);
+      return;
+    }
+    const items=fresh.map(r=>({
+      id:uid(),
+      dateISO:r.dateISO,
+      amount:r.amount,
+      rubrik:r.rubrik,
+      subcatId:categorize(r.rubrik,r.amount)
+    }));
+    importCtx={period, items, skippedOutside:rows.length-inPeriod.length, skippedDupes:inPeriod.length-fresh.length};
+    renderImportReview();
+    openOverlay('import-overlay');
+  };
+  reader.readAsText(file,'UTF-8');
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function categoryBadgeHTML(item){
+  if(item.subcatId==='income'){
+    return `<span class="import-row-cat excluded" onclick="openImportCatPicker('${item.id}')">Inkomst</span>`;
+  }
+  if(!item.subcatId){
+    return `<span class="import-row-cat unknown" onclick="openImportCatPicker('${item.id}')">Okategoriserad</span>`;
+  }
+  const meta=subcatMeta(item.subcatId);
+  if(!meta) return `<span class="import-row-cat unknown" onclick="openImportCatPicker('${item.id}')">Okategoriserad</span>`;
+  if(meta.type==='fixed'){
+    return `<span class="import-row-cat excluded" onclick="openImportCatPicker('${item.id}')">${meta.label}</span>`;
+  }
+  return `<span class="import-row-cat" style="background:${meta.catColor}22;color:${meta.catColor}" onclick="openImportCatPicker('${item.id}')">${meta.label}</span>`;
+}
+
+function renderImportReview(){
+  if(!importCtx)return;
+  let subtitle=keyLabel(importCtx.period)+' · '+importCtx.items.length+' nya transaktioner';
+  if(importCtx.skippedOutside||importCtx.skippedDupes){
+    const parts=[];
+    if(importCtx.skippedOutside)parts.push(importCtx.skippedOutside+' utanför perioden');
+    if(importCtx.skippedDupes)parts.push(importCtx.skippedDupes+' redan importerade');
+    subtitle+=' (hoppade över '+parts.join(', ')+')';
+  }
+  document.getElementById('import-period-label').textContent=subtitle;
+
+  const loggable=importCtx.items.filter(i=>i.subcatId && i.subcatId!=='income' && subcatMeta(i.subcatId) && subcatMeta(i.subcatId).type!=='fixed');
+  const excluded=importCtx.items.filter(i=>i.subcatId==='income' || (i.subcatId && subcatMeta(i.subcatId) && subcatMeta(i.subcatId).type==='fixed'));
+  const unknown=importCtx.items.filter(i=>!i.subcatId);
+
+  function rowHTML(item){
+    const sign=item.amount<0?'':'+';
+    return `<div class="import-row">
+      <div class="import-row-main">
+        <div class="import-row-rubrik">${escapeHtml(item.rubrik)}</div>
+        <div class="import-row-date">${item.dateISO}</div>
+      </div>
+      <div class="import-row-amount">${sign}${fmt(item.amount)} kr</div>
+      ${categoryBadgeHTML(item)}
+    </div>`;
+  }
+
+  let html='';
+  if(unknown.length){
+    html+=`<div class="import-group-label">Okategoriserade (${unknown.length})</div>`;
+    html+=`<div class="import-group-note">Räknas inte med i loggen förrän du valt en kategori.</div>`;
+    html+=unknown.map(rowHTML).join('');
+  }
+  if(loggable.length){
+    html+=`<div class="import-group-label">Läggs till i loggen (${loggable.length})</div>`;
+    html+=loggable.map(rowHTML).join('');
+  }
+  if(excluded.length){
+    html+=`<div class="import-group-label">Påverkar inte loggen (${excluded.length})</div>`;
+    html+=`<div class="import-group-note">Fasta utgifter och inkomst loggas inte transaktion för transaktion i den här appen — visas bara för din egen koll.</div>`;
+    html+=excluded.map(rowHTML).join('');
+  }
+  document.getElementById('import-list').innerHTML=html||`<div class="empty-state"><div class="empty-text">Inga transaktioner att visa.</div></div>`;
+
+  const sumKr=loggable.reduce((s,i)=>s+(-i.amount),0);
+  document.getElementById('import-footer-summary').textContent=`${fmt(sumKr)} kr läggs till loggen för ${keyLabel(importCtx.period)}`;
+}
+
+function openImportCatPicker(itemId){
+  if(!importCtx)return;
+  importCtx.editingId=itemId;
+  const list=document.getElementById('import-cat-list');
+  let html=`<div class="import-cat-option" onclick="selectImportCat(null)"><span class="row-dot" style="background:var(--text2)"></span>Okategoriserad / ignorera</div>`;
+  html+=`<div class="import-cat-option" onclick="selectImportCat('income')"><span class="row-dot" style="background:var(--green)"></span>Inkomst</div>`;
+  cats.forEach(cat=>{
+    html+=`<div class="import-cat-group-label">${cat.label}</div>`;
+    cat.subcats.forEach(sc=>{
+      html+=`<div class="import-cat-option" onclick="selectImportCat('${sc.id}')"><span class="row-dot" style="background:${cat.color}"></span>${sc.label}</div>`;
+    });
+  });
+  list.innerHTML=html;
+  openOverlay('import-cat-overlay');
+}
+function closeImportCatOverlay(e){
+  if(!e||e.target===document.getElementById('import-cat-overlay')) closeOverlay('import-cat-overlay');
+}
+function selectImportCat(subcatId){
+  if(!importCtx||!importCtx.editingId)return;
+  const item=importCtx.items.find(i=>i.id===importCtx.editingId);
+  if(!item)return;
+  const prev=item.subcatId;
+  item.subcatId=subcatId;
+  closeOverlay('import-cat-overlay');
+  renderImportReview();
+  if(subcatId && subcatId!==prev) openLearnRule(item, subcatId);
+}
+
+function openLearnRule(item, subcatId){
+  learnCtx={item,subcatId};
+  const pattern=(item.rubrik.split(/\d/)[0]||item.rubrik).trim() || item.rubrik;
+  document.getElementById('learn-pattern-input').value=pattern;
+  const meta=subcatMeta(subcatId);
+  document.getElementById('learn-cat-label').textContent=subcatId==='income'?'Inkomst':(meta?meta.label:'okänd kategori');
+  openOverlay('learn-overlay');
+}
+function closeLearnOverlay(e){
+  if(!e||e.target===document.getElementById('learn-overlay')){closeOverlay('learn-overlay');learnCtx=null;}
+}
+function saveLearnRule(){
+  if(!learnCtx)return;
+  const pattern=document.getElementById('learn-pattern-input').value.trim();
+  if(pattern){
+    customRules.push({id:uid(), pattern, subcatId:learnCtx.subcatId});
+    saveCustomRules();
+  }
+  closeOverlay('learn-overlay');learnCtx=null;
+}
+function skipLearnRule(){ closeOverlay('learn-overlay'); learnCtx=null; }
+
+function confirmImport(){
+  if(!importCtx)return;
+  const period=importCtx.period;
+  const existing=transactions[period]||[];
+  const stored=importCtx.items.map(i=>({id:i.id,dateISO:i.dateISO,amount:i.amount,rubrik:i.rubrik,subcatId:i.subcatId}));
+  transactions[period]=existing.concat(stored);
+  saveTransactions();
+  closeOverlay('import-overlay');
+  importCtx=null;
+  renderLogg();
+}
+function cancelImport(){
+  closeOverlay('import-overlay');
+  importCtx=null;
 }
 
 // ======= ANALYS TAB =======
@@ -887,8 +1259,22 @@ function purgeSubcatData(subcatId){
 function openNumModal(key,label,scope='budget'){
   numCtx={key,scope};
   document.getElementById('num-title').textContent=label;
-  const val=scope==='budget'?(budget[key]||0):(log[currentLogMonth]?.[key]||0);
-  document.getElementById('num-input').value=val||'';
+  const noteEl=document.getElementById('num-imported-note');
+  if(scope==='log'){
+    const manual=log[currentLogMonth]?.[key]||0;
+    const imported=getImportedSum(currentLogMonth,key);
+    if(imported){
+      noteEl.textContent=`Importerat: ${fmt(imported)} kr · fältet nedan är manuellt tillägg`;
+      noteEl.style.display='block';
+    }else{
+      noteEl.style.display='none';
+    }
+    document.getElementById('num-input').value=manual||'';
+  }else{
+    noteEl.style.display='none';
+    const val=budget[key]||0;
+    document.getElementById('num-input').value=val||'';
+  }
   openOverlay('num-overlay');
   setTimeout(()=>document.getElementById('num-input').focus(),300);
 }
@@ -933,6 +1319,8 @@ document.getElementById('text-input').addEventListener('keydown',e=>{if(e.key===
 
 // ======= BOOT =======
 loadAll();
+loadTransactions();
+loadCustomRules();
 const now=new Date();
 document.getElementById('b-month-label').textContent=MONTHS_FULL[now.getMonth()]+' '+now.getFullYear();
 if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
