@@ -72,8 +72,9 @@
     .income-label{flex:1;font-size:15px;font-weight:600}
     .income-value{font-size:15px;font-weight:600;color:var(--accent)}
 
-    /* Log month nav */
-    .month-nav{display:flex;align-items:center;justify-content:space-between;margin:0 1.25rem .75rem;background:var(--card);border:1px solid var(--border);border-radius:14px;padding:.6rem .75rem}
+    /* Log header: månadsnav + summering slås ihop till ETT kort för att spara höjd */
+    .log-header-card{margin:0 1.25rem .75rem;background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+    .month-nav{display:flex;align-items:center;justify-content:space-between;padding:.5rem .75rem}
     .month-nav-btn{background:none;border:none;font-size:20px;color:var(--text2);cursor:pointer;padding:.2rem .5rem;-webkit-tap-highlight-color:transparent}
     .month-nav-btn:active{opacity:.5}
     .month-nav-center{text-align:center}
@@ -84,7 +85,7 @@
     .badge-missing{color:var(--text2)}
 
     /* Log summary */
-    .log-summary{margin:.75rem 1.25rem 1.5rem;background:var(--card);border:1px solid var(--border);border-radius:14px;padding:1rem;display:grid;grid-template-columns:1fr 1fr 1fr;gap:.5rem}
+    .log-summary{border-top:1px solid var(--border);padding:.65rem 1rem;display:grid;grid-template-columns:1fr 1fr 1fr;gap:.5rem}
     .sum-item{text-align:center}
     .sum-item-label{font-size:11px;color:var(--text2);margin-bottom:2px}
     .sum-item-val{font-size:16px;font-weight:600}
@@ -254,21 +255,23 @@
     <button class="import-btn" style="flex:1;margin:0" onclick="openImportPicker()"><span>📂</span><span>Importera CSV</span></button>
     <button class="import-btn" style="width:48px;flex:none;margin:0;padding:0" onclick="confirmDeleteImport()" title="Radera import för perioden">🗑</button>
   </div>
-  <div class="month-nav">
-    <button class="month-nav-btn" onclick="changeLogMonth(-1)">‹</button>
-    <div class="month-nav-center">
-      <div class="month-nav-label" id="log-month-label">—</div>
-      <div class="period-sub" id="log-period-sub"></div>
-      <div class="month-badge" id="log-badge"></div>
+  <div class="log-header-card">
+    <div class="month-nav">
+      <button class="month-nav-btn" onclick="changeLogMonth(-1)">‹</button>
+      <div class="month-nav-center">
+        <div class="month-nav-label" id="log-month-label">—</div>
+        <div class="period-sub" id="log-period-sub"></div>
+        <div class="month-badge" id="log-badge"></div>
+      </div>
+      <button class="month-nav-btn" id="log-next-btn" onclick="changeLogMonth(1)">›</button>
     </div>
-    <button class="month-nav-btn" id="log-next-btn" onclick="changeLogMonth(1)">›</button>
+    <div class="log-summary">
+      <div class="sum-item"><div class="sum-item-label">Utfall</div><div class="sum-item-val" id="log-total">0 kr</div></div>
+      <div class="sum-item"><div class="sum-item-label">Budget</div><div class="sum-item-val" id="log-budget-total">0 kr</div></div>
+      <div class="sum-item"><div class="sum-item-label">Differens</div><div class="sum-item-val" id="log-diff">0 kr</div></div>
+    </div>
   </div>
-  <div class="log-summary">
-    <div class="sum-item"><div class="sum-item-label">Utfall</div><div class="sum-item-val" id="log-total">0 kr</div></div>
-    <div class="sum-item"><div class="sum-item-label">Budget</div><div class="sum-item-val" id="log-budget-total">0 kr</div></div>
-    <div class="sum-item"><div class="sum-item-label">Differens</div><div class="sum-item-val" id="log-diff">0 kr</div></div>
-  </div>
-  <div id="log-unknown-link" style="display:none;margin:-.75rem 1.25rem .75rem;text-align:center;font-size:13px;color:var(--accent);cursor:pointer" onclick="openTxList(currentLogMonth,null,'Okategoriserat')">Visa okategoriserade transaktioner (<span id="log-unknown-count">0</span>)</div>
+  <div id="log-unknown-link" style="display:none;margin:-.5rem 1.25rem .75rem;text-align:center;font-size:13px;color:var(--accent);cursor:pointer" onclick="openTxList(currentLogMonth,null,'Okategoriserat')">Visa okategoriserade transaktioner (<span id="log-unknown-count">0</span>)</div>
   <div class="log-viewport" id="log-viewport">
     <div class="log-track" id="log-track">
       <div class="log-pane" id="log-pane-prev"></div>
@@ -872,7 +875,7 @@ function renderBudget(){
     sub.forEach(sc=>{
       html+=`<div class="row">
         <span class="row-dot" style="background:${cat.color}"></span>
-        <span class="row-label">${sc.label}${sc.note?`<small>${sc.note}</small>`:''}</span>
+        <span class="row-label">${sc.label}</span>
         <span class="row-value editable" onclick="openNumModal('${sc.id}','${sc.label}')">
           <span id="b-${sc.id}">${fmt(budget[sc.id])}</span> kr
         </span>
@@ -1406,7 +1409,10 @@ function cancelImport(){
 
 // ======= ANALYS TAB =======
 function renderAnalys(){
-  const keys=Object.keys(log).sort().filter(periodComplete);
+  // OBS: en period kan vara loggad HELT via CSV-import (inga manuella belopp alls) —
+  // Object.keys(log) missar då perioden helt, precis som "Inte loggad ännu"-bannern gjorde
+  // innan den fixades. Utgå därför från unionen av log OCH transactions, samma som isPeriodLogged().
+  const keys=Array.from(new Set([...Object.keys(log), ...Object.keys(transactions)])).sort().filter(periodComplete);
   const container=document.getElementById('analys-content');
   if(!keys.length){
     container.innerHTML=`<div class="empty-state"><div class="empty-icon">📊</div><div class="empty-title">Ingen data än</div><div class="empty-text">Logga månader i Logg-fliken. Månader räknas med efter den 25:e.</div></div>`;
@@ -1416,7 +1422,9 @@ function renderAnalys(){
   const logSubs=getLogSubcats();
   const avgs={};
   logSubs.forEach(sc=>{
-    const vals=keys.map(k=>log[k]?.[sc.id]||0).filter(v=>v>0);
+    // Måste räkna med importerade belopp, inte bara manuella inmatningar — annars blir
+    // snitt/trend 0 kr för alla som mest loggar via CSV-import.
+    const vals=keys.map(k=>(log[k]?.[sc.id]||0)+getImportedSum(k,sc.id)).filter(v=>v>0);
     avgs[sc.id]=vals.length?vals.reduce((s,v)=>s+v,0)/vals.length:0;
   });
   const budgTotal=logSubs.filter(s=>s.type!=='log-only').reduce((s,c)=>s+(budget[c.id]||0),0);
@@ -1494,7 +1502,7 @@ function buildTrendChart(keys,logCats2){
   const cW=W-PL-PR,cH=H-PT-PB,n=keys.length;
   const data=keys.map(k=>{
     const e=log[k]||{};
-    return logCats2.map(cat=>cat.subcats.filter(s=>s.type!=='fixed').reduce((s,sc)=>s+(e[sc.id]||0),0));
+    return logCats2.map(cat=>cat.subcats.filter(s=>s.type!=='fixed').reduce((s,sc)=>s+(e[sc.id]||0)+getImportedSum(k,sc.id),0));
   });
   const maxTotal=Math.max(...data.map(d=>d.reduce((s,v)=>s+v,0)),1);
   const step=cW/n,barW=Math.min(step*.65,28);
