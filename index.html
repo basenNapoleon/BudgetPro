@@ -153,6 +153,10 @@
     /* Modals */
     .overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100;display:flex;align-items:flex-end;opacity:0;pointer-events:none;transition:opacity .2s}
     .overlay.open{opacity:1;pointer-events:all}
+    /* Kategorival och lär-regel kan öppnas OVANPÅ en redan öppen import/tx-lista-overlay —
+       måste alltid rendera högst upp oavsett DOM-ordning, annars fångar den undre overlayn
+       (samma z-index, senare i DOM) alla klick och kategorivalet verkar inte gå att trycka på. */
+    #import-cat-overlay,#learn-overlay{z-index:110}
     .modal{background:var(--card);border-radius:20px 20px 0 0;padding:1.25rem 1.5rem calc(1.5rem + var(--safe-bottom));width:100%;transform:translateY(100%);transition:transform .25s cubic-bezier(.32,.72,0,1)}
     .overlay.open .modal{transform:translateY(0)}
     .modal-handle{width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 1rem}
@@ -246,7 +250,10 @@
     <span class="sub-label">faktisk spending</span>
   </div>
   <input type="file" id="csv-file-input" accept=".csv" style="display:none" onchange="handleImportFile(event)">
-  <button class="import-btn" onclick="openImportPicker()"><span>📂</span><span>Importera CSV</span></button>
+  <div style="display:flex;gap:.5rem;margin:0 1.25rem .75rem">
+    <button class="import-btn" style="flex:1;margin:0" onclick="openImportPicker()"><span>📂</span><span>Importera CSV</span></button>
+    <button class="import-btn" style="width:48px;flex:none;margin:0;padding:0" onclick="confirmDeleteImport()" title="Radera import för perioden">🗑</button>
+  </div>
   <div class="month-nav">
     <button class="month-nav-btn" onclick="changeLogMonth(-1)">‹</button>
     <div class="month-nav-center">
@@ -261,10 +268,7 @@
     <div class="sum-item"><div class="sum-item-label">Budget</div><div class="sum-item-val" id="log-budget-total">0 kr</div></div>
     <div class="sum-item"><div class="sum-item-label">Differens</div><div class="sum-item-val" id="log-diff">0 kr</div></div>
   </div>
-  <div id="log-unknown-link" style="display:none;margin:-.75rem 1.25rem 1rem;text-align:center;font-size:13px;color:var(--accent);cursor:pointer" onclick="openTxList(currentLogMonth,null,'Okategoriserat')">Visa okategoriserade transaktioner (<span id="log-unknown-count">0</span>)</div>
-  <div style="text-align:center;margin:-.5rem 1.25rem 1rem">
-    <span style="font-size:12px;color:var(--text2);cursor:pointer" onclick="confirmDeleteImport()">Radera import för perioden</span>
-  </div>
+  <div id="log-unknown-link" style="display:none;margin:-.75rem 1.25rem .75rem;text-align:center;font-size:13px;color:var(--accent);cursor:pointer" onclick="openTxList(currentLogMonth,null,'Okategoriserat')">Visa okategoriserade transaktioner (<span id="log-unknown-count">0</span>)</div>
   <div class="log-viewport" id="log-viewport">
     <div class="log-track" id="log-track">
       <div class="log-pane" id="log-pane-prev"></div>
@@ -1248,6 +1252,12 @@ function openImportCatPicker(itemId){
 function closeImportCatOverlay(e){
   if(!e||e.target===document.getElementById('import-cat-overlay')) closeOverlay('import-cat-overlay');
 }
+// Swish-rubriker innehåller ett personnamn/referens, inte ett butiksnamn — att lära in en
+// regel utifrån dem (t.ex. "ÖHMAN,KAJSA" -> Restaurang) skulle felaktigt slå till varje
+// gång just den personen swishar dig, oavsett vad det gäller nästa gång. Erbjud därför
+// aldrig "Kom ihåg butiken?" när man kategoriserar om en Swish-transaktion.
+function isSwishRubrik(rubrik){ return /^SWISH (BETALNING|INBETALNING)/i.test((rubrik||'').trim()); }
+
 function selectImportCat(subcatId){
   if(!importCtx||!importCtx.editingId)return;
   const item=importCtx.items.find(i=>i.id===importCtx.editingId);
@@ -1257,7 +1267,7 @@ function selectImportCat(subcatId){
   item.suggestedCat=null;
   closeOverlay('import-cat-overlay');
   renderImportReview();
-  if(subcatId && subcatId!==prev) openLearnRule(item, subcatId);
+  if(subcatId && subcatId!==prev && !isSwishRubrik(item.rubrik)) openLearnRule(item, subcatId);
 }
 
 // ======= TX-LISTA: se & kategorisera om enskilda importerade transaktioner =======
@@ -1309,7 +1319,7 @@ function selectTxCat(subcatId){
   saveTransactions();
   renderTxList();
   renderLogg();
-  if(subcatId && subcatId!==prev) openLearnRule(tx, subcatId);
+  if(subcatId && subcatId!==prev && !isSwishRubrik(tx.rubrik)) openLearnRule(tx, subcatId);
 }
 
 function openLearnRule(item, subcatId){
