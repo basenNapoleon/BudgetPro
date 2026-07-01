@@ -72,9 +72,8 @@
     .income-label{flex:1;font-size:15px;font-weight:600}
     .income-value{font-size:15px;font-weight:600;color:var(--accent)}
 
-    /* Log header: månadsnav + summering slås ihop till ETT kort för att spara höjd */
-    .log-header-card{margin:0 1.25rem .75rem;background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden}
-    .month-nav{display:flex;align-items:center;justify-content:space-between;padding:.5rem .75rem}
+    /* Log month nav */
+    .month-nav{display:flex;align-items:center;justify-content:space-between;margin:0 1.25rem .5rem;background:var(--card);border:1px solid var(--border);border-radius:14px;padding:.5rem .75rem}
     .month-nav-btn{background:none;border:none;font-size:20px;color:var(--text2);cursor:pointer;padding:.2rem .5rem;-webkit-tap-highlight-color:transparent}
     .month-nav-btn:active{opacity:.5}
     .month-nav-center{text-align:center}
@@ -85,7 +84,7 @@
     .badge-missing{color:var(--text2)}
 
     /* Log summary */
-    .log-summary{border-top:1px solid var(--border);padding:.65rem 1rem;display:grid;grid-template-columns:1fr 1fr 1fr;gap:.5rem}
+    .log-summary{margin:0 1.25rem .75rem;background:var(--card);border:1px solid var(--border);border-radius:14px;padding:.65rem 1rem;display:grid;grid-template-columns:1fr 1fr 1fr;gap:.5rem}
     .sum-item{text-align:center}
     .sum-item-label{font-size:11px;color:var(--text2);margin-bottom:2px}
     .sum-item-val{font-size:16px;font-weight:600}
@@ -255,23 +254,21 @@
     <button class="import-btn" style="flex:1;margin:0" onclick="openImportPicker()"><span>📂</span><span>Importera CSV</span></button>
     <button class="import-btn" style="width:48px;flex:none;margin:0;padding:0" onclick="confirmDeleteImport()" title="Radera import för perioden">🗑</button>
   </div>
-  <div class="log-header-card">
-    <div class="month-nav">
-      <button class="month-nav-btn" onclick="changeLogMonth(-1)">‹</button>
-      <div class="month-nav-center">
-        <div class="month-nav-label" id="log-month-label">—</div>
-        <div class="period-sub" id="log-period-sub"></div>
-        <div class="month-badge" id="log-badge"></div>
-      </div>
-      <button class="month-nav-btn" id="log-next-btn" onclick="changeLogMonth(1)">›</button>
+  <div class="month-nav">
+    <button class="month-nav-btn" onclick="changeLogMonth(-1)">‹</button>
+    <div class="month-nav-center">
+      <div class="month-nav-label" id="log-month-label">—</div>
+      <div class="period-sub" id="log-period-sub"></div>
+      <div class="month-badge" id="log-badge"></div>
     </div>
-    <div class="log-summary">
-      <div class="sum-item"><div class="sum-item-label">Utfall</div><div class="sum-item-val" id="log-total">0 kr</div></div>
-      <div class="sum-item"><div class="sum-item-label">Budget</div><div class="sum-item-val" id="log-budget-total">0 kr</div></div>
-      <div class="sum-item"><div class="sum-item-label">Differens</div><div class="sum-item-val" id="log-diff">0 kr</div></div>
-    </div>
+    <button class="month-nav-btn" id="log-next-btn" onclick="changeLogMonth(1)">›</button>
   </div>
-  <div id="log-unknown-link" style="display:none;margin:-.5rem 1.25rem .75rem;text-align:center;font-size:13px;color:var(--accent);cursor:pointer" onclick="openTxList(currentLogMonth,null,'Okategoriserat')">Visa okategoriserade transaktioner (<span id="log-unknown-count">0</span>)</div>
+  <div class="log-summary">
+    <div class="sum-item"><div class="sum-item-label">Utfall</div><div class="sum-item-val" id="log-total">0 kr</div></div>
+    <div class="sum-item"><div class="sum-item-label">Budget</div><div class="sum-item-val" id="log-budget-total">0 kr</div></div>
+    <div class="sum-item"><div class="sum-item-label">Differens</div><div class="sum-item-val" id="log-diff">0 kr</div></div>
+  </div>
+  <div id="log-unknown-link" style="display:none;margin:-.4rem 1.25rem .75rem;text-align:center;font-size:13px;color:var(--accent);cursor:pointer" onclick="openTxList(currentLogMonth,null,'Okategoriserat')">Visa okategoriserade transaktioner (<span id="log-unknown-count">0</span>)</div>
   <div class="log-viewport" id="log-viewport">
     <div class="log-track" id="log-track">
       <div class="log-pane" id="log-pane-prev"></div>
