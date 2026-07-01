@@ -673,7 +673,7 @@ function categorize(rubrik, amount){
   if(upper==='LÖN' || /ARVODE/.test(upper)) return 'income';
   return null;
 }
- 
+
 // ======= STATE =======
 let cats=[],budget={},log={};
 let transactions={}; // {period: [{id,dateISO,amount,rubrik,subcatId}]}
