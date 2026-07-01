@@ -212,7 +212,7 @@
     <span class="sub-label" id="b-month-label"></span>
   </div>
   <div class="hero positive" id="b-hero">
-    <div class="hero-label">Kvar denna månad</div>
+    <div class="hero-label">Rörligt utrymme</div>
     <div class="hero-amount" id="b-hero-amount">—</div>
     <div class="hero-sub">
       <span>Utgifter: <strong id="b-total">—</strong></span>
@@ -423,9 +423,10 @@
     <div class="modal-handle"></div>
     <div class="modal-title">Kom ihåg butiken?</div>
     <div class="modal-input-wrap">
-      <input class="text-input" id="learn-pattern-input" type="text" placeholder="Matchningstext...">
+      <input class="text-input" id="learn-pattern-input" type="text" placeholder="Matchningstext..." oninput="updateLearnConflictWarning()">
     </div>
     <div class="delete-warning">Nästa gång en rubrik innehåller detta läggs den automatiskt i <strong id="learn-cat-label"></strong>.</div>
+    <div class="delete-warning" id="learn-conflict-warning" style="display:none;color:var(--red)"></div>
     <button class="modal-btn" onclick="saveLearnRule()">Spara regel</button>
     <button class="cancel-btn" onclick="skipLearnRule()">Nej tack</button>
   </div>
@@ -774,6 +775,12 @@ function getImportedSum(period,subcatId){
   const list=transactions[period]||[];
   return list.filter(t=>t.subcatId===subcatId).reduce((s,t)=>s+(-t.amount),0);
 }
+// En period räknas som "loggad" om den har manuella inmatningar ELLER importerade
+// transaktioner — tidigare kollades bara log[key], så en period som bara loggats
+// via CSV-import (inga manuella belopp) visades felaktigt som "Inte loggad ännu".
+function isPeriodLogged(key){
+  return !!(log[key]&&Object.keys(log[key]).length) || !!(transactions[key]&&transactions[key].length);
+}
 
 // ======= PAGE SWITCHING =======
 function showPage(name){
@@ -813,7 +820,7 @@ function renderBudget(){
 
   // Banner
   const tm=currentLogPeriodKey();
-  document.getElementById('b-banner').style.display=log[tm]?'none':'flex';
+  document.getElementById('b-banner').style.display=isPeriodLogged(tm)?'none':'flex';
   document.getElementById('b-banner-month').textContent=keyLabel(tm);
 
   // Categories
@@ -870,7 +877,7 @@ function buildLogPaneHTML(key){
 // Uppdaterar bara headern (månadsnamn, period, badge, nästa-knappens opacity) för currentLogMonth.
 function renderLogHeader(){
   const entry=log[currentLogMonth]||{};
-  const isLogged=!!log[currentLogMonth];
+  const isLogged=isPeriodLogged(currentLogMonth);
   const isCurrent=currentLogMonth===currentLogPeriodKey();
   const logSubs=getLogSubcats();
   const logBudgetTotal=availableForVariable();
@@ -988,22 +995,27 @@ function splitCsvLine(line, sep){
 function parseCSV(text){
   if(text.charCodeAt(0)===0xFEFF) text=text.slice(1);
   const lines=text.split(/\r\n|\n|\r/).filter(l=>l.trim().length);
-  if(lines.length<2) return [];
+  if(lines.length<2) return {rows:[], skipped:0};
   const out=[];
+  let skipped=0;
   lines.slice(1).forEach(line=>{
     const cols=splitCsvLine(line, ';');
     const dateRaw=(cols[0]||'').trim();
     const dateParts=dateRaw.split(/[\/\-]/).map(Number);
-    if(dateParts.length!==3||dateParts.some(isNaN))return;
+    if(dateParts.length!==3||dateParts.some(isNaN)){skipped++;return;}
     const [y,m,d]=dateParts;
     const dateISO=y+'-'+String(m).padStart(2,'0')+'-'+String(d).padStart(2,'0');
     const amount=parseAmount(cols[1]||'0');
-    if(isNaN(amount))return;
-    const rubrik=(cols[5]||'').trim();
-    if(!rubrik)return;
+    if(isNaN(amount)){skipped++;return;}
+    // Rubrik (kol 5) är oftast beskrivningen, men en del transaktioner (t.ex. böter/avgifter
+    // från tredje part) har tom Rubrik och beskrivningen i Namn/Mottagare/Avsändare istället.
+    // Faller tillbaka genom kolumnerna innan raden räknas som otolkbar och kastas — annars
+    // försvinner den spårlöst, vilket är precis det appen ska undvika jämfört med Nordeas app.
+    const rubrik=(cols[5]||'').trim() || (cols[4]||'').trim() || (cols[3]||'').trim() || (cols[2]||'').trim();
+    if(!rubrik){skipped++;return;}
     out.push({dateISO, amount, rubrik});
   });
-  return out;
+  return {rows:out, skipped};
 }
 // Period = 25:e föregående månad (exkl.) t.o.m. 25:e denna månad (inkl.)
 function periodRange(key){
@@ -1029,19 +1041,29 @@ function handleImportFile(e){
   if(!file)return;
   const reader=new FileReader();
   reader.onload=function(ev){
-    let rows;
-    try{ rows=parseCSV(ev.target.result); }
+    let parsed;
+    try{ parsed=parseCSV(ev.target.result); }
     catch(err){ alert('Kunde inte läsa filen. Kontrollera att det är en CSV-export från Nordea.'); return; }
-    if(!rows.length){ alert('Hittade inga giltiga rader i filen.'); return; }
+    const rows=parsed.rows;
+    if(!rows.length){
+      alert(parsed.skipped
+        ? `Hittade inga giltiga rader i filen (${parsed.skipped} rad(er) kunde inte tolkas).`
+        : 'Hittade inga giltiga rader i filen.');
+      return;
+    }
     const period=currentLogMonth||thisMonth();
     const inPeriod=rows.filter(r=>isInPeriod(r.dateISO,period));
     const existing=transactions[period]||[];
     const existingKeys=new Set(existing.map(t=>txKey(t)));
     const fresh=inPeriod.filter(r=>!existingKeys.has(txKey(r)));
     if(!fresh.length){
-      const skipped=rows.length-inPeriod.length;
+      const skippedOutside=rows.length-inPeriod.length;
       const dupes=inPeriod.length-fresh.length;
-      alert(`Inga nya transaktioner för ${keyLabel(period)}.\n${skipped} rad(er) låg utanför perioden, ${dupes} var redan importerade.`);
+      const parts=[];
+      if(skippedOutside)parts.push(skippedOutside+' rad(er) låg utanför perioden');
+      if(dupes)parts.push(dupes+' var redan importerade');
+      if(parsed.skipped)parts.push(parsed.skipped+' kunde inte tolkas');
+      alert(`Inga nya transaktioner för ${keyLabel(period)}.\n${parts.join(', ')}.`);
       return;
     }
     const items=fresh.map(r=>({
@@ -1051,7 +1073,7 @@ function handleImportFile(e){
       rubrik:r.rubrik,
       subcatId:categorize(r.rubrik,r.amount)
     }));
-    importCtx={period, items, skippedOutside:rows.length-inPeriod.length, skippedDupes:inPeriod.length-fresh.length};
+    importCtx={period, items, skippedOutside:rows.length-inPeriod.length, skippedDupes:inPeriod.length-fresh.length, skippedUnparsed:parsed.skipped};
     renderImportReview();
     openOverlay('import-overlay');
   };
@@ -1080,10 +1102,11 @@ function categoryBadgeHTML(item){
 function renderImportReview(){
   if(!importCtx)return;
   let subtitle=keyLabel(importCtx.period)+' · '+importCtx.items.length+' nya transaktioner';
-  if(importCtx.skippedOutside||importCtx.skippedDupes){
+  if(importCtx.skippedOutside||importCtx.skippedDupes||importCtx.skippedUnparsed){
     const parts=[];
     if(importCtx.skippedOutside)parts.push(importCtx.skippedOutside+' utanför perioden');
     if(importCtx.skippedDupes)parts.push(importCtx.skippedDupes+' redan importerade');
+    if(importCtx.skippedUnparsed)parts.push(importCtx.skippedUnparsed+' kunde inte tolkas');
     subtitle+=' (hoppade över '+parts.join(', ')+')';
   }
   document.getElementById('import-period-label').textContent=subtitle;
@@ -1158,22 +1181,62 @@ function openLearnRule(item, subcatId){
   learnCtx={item,subcatId};
   // Strippa Nordea-prefix (t.ex. "Kortköp", "Autogiro") så mönstret
   // baseras på butiksnamnet, inte transaktionstypen
-  const stripped=stripNordeaPrefix(item.rubrik);
-  // Klipp vid första siffran (artikelnummer/terminalid) men behåll butiksnamnet
-  const pattern=(stripped.split(/\d/)[0]||stripped).trim() || stripped;
+  let stripped=stripNordeaPrefix(item.rubrik).trim();
+  // Ta bort ett eventuellt INLEDANDE sifferblock (transaktions-/datumnummer FÖRE butiksnamnet,
+  // t.ex. "260305 RUTERAPPEN") — annars hamnar numret kvar i mönstret och regeln matchar
+  // aldrig igen, eftersom det numret är unikt per transaktion.
+  const noLeadingNum=stripped.replace(/^\d[\d\s]*\s+/,'').trim();
+  const base=noLeadingNum||stripped;
+  // Klipp vid nästa sifferblock (artikelnummer/terminal-id EFTER butiksnamnet) men behåll butiksnamnet
+  const pattern=(base.split(/\d/)[0]||base).trim() || base;
   document.getElementById('learn-pattern-input').value=pattern;
   const meta=subcatMeta(subcatId);
   document.getElementById('learn-cat-label').textContent=subcatId==='income'?'Inkomst':(meta?meta.label:'okänd kategori');
+  updateLearnConflictWarning();
   openOverlay('learn-overlay');
 }
 function closeLearnOverlay(e){
   if(!e||e.target===document.getElementById('learn-overlay')){closeOverlay('learn-overlay');learnCtx=null;}
 }
+// Hittar en redan sparad regel som skulle krocka med det föreslagna/redigerade mönstret
+// (antingen matchar den samma transaktion, eller mönstren överlappar varandra som text).
+function findConflictingRule(pattern){
+  const patternU=pattern.toUpperCase();
+  if(!patternU||!learnCtx)return null;
+  return customRules.find(r=>r.pattern && (
+    learnCtx.item.rubrik.toUpperCase().includes(r.pattern.toUpperCase()) ||
+    patternU.includes(r.pattern.toUpperCase()) ||
+    r.pattern.toUpperCase().includes(patternU)
+  )) || null;
+}
+// Visar en varning i modalen om det redan finns en regel som pekar mot en ANNAN kategori —
+// annars skulle en ny regel bara läggas sist i listan och aldrig "vinna", eftersom
+// categorize() alltid tar första träffen i customRules-ordning.
+function updateLearnConflictWarning(){
+  if(!learnCtx)return;
+  const pattern=document.getElementById('learn-pattern-input').value.trim();
+  const el=document.getElementById('learn-conflict-warning');
+  const conflict=findConflictingRule(pattern);
+  if(conflict && conflict.subcatId!==learnCtx.subcatId){
+    const oldMeta=subcatMeta(conflict.subcatId);
+    const oldLabel=conflict.subcatId==='income'?'Inkomst':(oldMeta?oldMeta.label:'okänd kategori');
+    el.textContent=`Regeln "${conflict.pattern}" pekar idag mot ${oldLabel}. Sparar du skrivs den om till den nya kategorin istället för att skapa en till regel.`;
+    el.style.display='block';
+  }else{
+    el.style.display='none';
+  }
+}
 function saveLearnRule(){
   if(!learnCtx)return;
   const pattern=document.getElementById('learn-pattern-input').value.trim();
   if(pattern){
-    customRules.push({id:uid(), pattern, subcatId:learnCtx.subcatId});
+    const conflict=findConflictingRule(pattern);
+    if(conflict){
+      conflict.pattern=pattern;
+      conflict.subcatId=learnCtx.subcatId;
+    }else{
+      customRules.push({id:uid(), pattern, subcatId:learnCtx.subcatId});
+    }
     saveCustomRules();
   }
   closeOverlay('learn-overlay');learnCtx=null;
