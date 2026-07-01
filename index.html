@@ -261,6 +261,10 @@
     <div class="sum-item"><div class="sum-item-label">Budget</div><div class="sum-item-val" id="log-budget-total">0 kr</div></div>
     <div class="sum-item"><div class="sum-item-label">Differens</div><div class="sum-item-val" id="log-diff">0 kr</div></div>
   </div>
+  <div id="log-unknown-link" style="display:none;margin:-.75rem 1.25rem 1rem;text-align:center;font-size:13px;color:var(--accent);cursor:pointer" onclick="openTxList(currentLogMonth,null,'Okategoriserat')">Visa okategoriserade transaktioner (<span id="log-unknown-count">0</span>)</div>
+  <div style="text-align:center;margin:-.5rem 1.25rem 1rem">
+    <span style="font-size:12px;color:var(--text2);cursor:pointer" onclick="confirmDeleteImport()">Radera import för perioden</span>
+  </div>
   <div class="log-viewport" id="log-viewport">
     <div class="log-track" id="log-track">
       <div class="log-pane" id="log-pane-prev"></div>
@@ -407,13 +411,27 @@
   </div>
 </div>
 
-<!-- MODAL: pick category for a transaction during import review -->
+<!-- MODAL: pick category (shared between import review and tx-list recategorization) -->
 <div class="overlay" id="import-cat-overlay" onclick="closeImportCatOverlay(event)">
   <div class="modal">
     <div class="modal-handle"></div>
     <div class="modal-title">Välj kategori</div>
     <div class="import-cat-list" id="import-cat-list"></div>
     <button class="cancel-btn" onclick="closeOverlay('import-cat-overlay')">Avbryt</button>
+  </div>
+</div>
+
+<!-- MODAL: se & kategorisera om enskilda importerade transaktioner för en kategori+period -->
+<div class="overlay import-overlay" id="txlist-overlay">
+  <div class="import-sheet">
+    <div class="import-header">
+      <button class="import-cancel" onclick="closeOverlay('txlist-overlay')">Klart</button>
+      <div class="import-header-title">
+        <div class="import-title" id="txlist-title">Transaktioner</div>
+      </div>
+      <div style="width:56px"></div>
+    </div>
+    <div class="import-list" id="txlist-items"></div>
   </div>
 </div>
 
@@ -653,7 +671,7 @@ function stripNordeaPrefix(rubrik){
 function includesAny(upper, list){ return list.some(s=>upper.includes(s)); }
 
 // Returnerar ett subcat-id (t.ex. 'food'), specialvärdet 'income', eller null (okategoriserad)
-function categorize(rubrik, amount){
+function categorizeRaw(rubrik, amount){
   const upper = rubrik.toUpperCase();
   for(const r of customRules){
     if(r.pattern && upper.includes(r.pattern.toUpperCase())) return r.subcatId;
@@ -673,6 +691,24 @@ function categorize(rubrik, amount){
   if(upper==='LÖN' || /ARVODE/.test(upper)) return 'income';
   return null;
 }
+// En del breda mönster (t.ex. ML-regeln "SKATT") kan råka matcha en UTGÅENDE betalning
+// (t.ex. en skatteskuld/böter) trots att de var tänkta att fånga inkommande skatteåterbäring.
+// Lita därför aldrig blint på "income" när beloppet faktiskt är negativt — det gömmer annars
+// en riktig utgift i "Påverkar inte loggen"-gruppen, osynlig i Utfall. Flagga som okategoriserad
+// istället, så den måste kollas manuellt en gång.
+function categorize(rubrik, amount){
+  const result=categorizeRaw(rubrik, amount);
+  if(result==='income' && amount<0) return null;
+  return result;
+}
+// Kategorier som ML-reglerna kan peka mot men som ännu inte skapats i appen (se DEFAULT_CUSTOM_RULES).
+// Om en rad matchar en av dessa ska den INTE tyst försvinna (subcatMeta blir null) — den ska visas
+// som okategoriserad med ett förslag om att skapa kategorin med ett tryck.
+const PENDING_CATEGORY_SUGGESTIONS = {
+  kollektivtrafik:{label:'Kollektivtrafik', type:'variable', parentId:'transport'},
+  resa:           {label:'Resa',            type:'variable', parentId:'noje'},
+  'paket-frakt':  {label:'Paket & frakt',   type:'variable', parentId:'ovrigt'},
+};
 
 // ======= STATE =======
 let cats=[],budget={},log={};
@@ -860,9 +896,13 @@ function buildLogPaneHTML(key){
       const total=manual+imported;
       const notes=[bv!==null?`budget: ${fmt(bv)} kr`:'ingen budget'];
       if(imported)notes.push(`varav importerat: ${fmt(imported)} kr`);
+      // Om det finns importerade poster går noten att trycka på för att se/kategorisera om dem.
+      const notesHTML=imported
+        ? `<small class="editable" onclick="openTxList('${key}','${sc.id}','${escapeHtml(sc.label)}')">${notes.join(' · ')} ›</small>`
+        : `<small>${notes.join(' · ')}</small>`;
       html+=`<div class="row">
         <span class="row-dot" style="background:${cat.color}"></span>
-        <span class="row-label">${sc.label}<small>${notes.join(' · ')}</small></span>
+        <span class="row-label">${sc.label}${notesHTML}</span>
         <span class="row-value editable" onclick="openNumModal('${sc.id}','${sc.label}','log','${key}')">
           <span>${fmt(total)}</span> kr
         </span>
@@ -894,6 +934,15 @@ function renderLogHeader(){
   const dEl=document.getElementById('log-diff');
   dEl.textContent=(diff>=0?'+':'')+fmt(diff)+' kr';
   dEl.className='sum-item-val '+(diff<=0?'diff-ok':'diff-over');
+
+  const unknownCount=(transactions[currentLogMonth]||[]).filter(t=>!t.subcatId).length;
+  const ulEl=document.getElementById('log-unknown-link');
+  if(unknownCount){
+    ulEl.style.display='block';
+    document.getElementById('log-unknown-count').textContent=unknownCount;
+  }else{
+    ulEl.style.display='none';
+  }
 }
 
 // Full omritning av de tre panelerna runt currentLogMonth — körs när Logg-fliken
@@ -1066,13 +1115,21 @@ function handleImportFile(e){
       alert(`Inga nya transaktioner för ${keyLabel(period)}.\n${parts.join(', ')}.`);
       return;
     }
-    const items=fresh.map(r=>({
-      id:uid(),
-      dateISO:r.dateISO,
-      amount:r.amount,
-      rubrik:r.rubrik,
-      subcatId:categorize(r.rubrik,r.amount)
-    }));
+    const items=fresh.map(r=>{
+      const rawCat=categorize(r.rubrik,r.amount);
+      // Om regeln pekar mot en kategori som inte finns i appen (t.ex. kollektivtrafik/resa/
+      // paket-frakt) ska raden INTE tyst försvinna — visa den som okategoriserad men kom ihåg
+      // vilken kategori som föreslogs, så vi kan visa "+ Skapa X" i granskningen.
+      const isOrphan=rawCat && rawCat!=='income' && !subcatMeta(rawCat);
+      return {
+        id:uid(),
+        dateISO:r.dateISO,
+        amount:r.amount,
+        rubrik:r.rubrik,
+        subcatId:isOrphan?null:rawCat,
+        suggestedCat:isOrphan?rawCat:null,
+      };
+    });
     importCtx={period, items, skippedOutside:rows.length-inPeriod.length, skippedDupes:inPeriod.length-fresh.length, skippedUnparsed:parsed.skipped};
     renderImportReview();
     openOverlay('import-overlay');
@@ -1085,6 +1142,10 @@ function escapeHtml(s){
 }
 
 function categoryBadgeHTML(item){
+  if(item.suggestedCat && PENDING_CATEGORY_SUGGESTIONS[item.suggestedCat]){
+    const label=PENDING_CATEGORY_SUGGESTIONS[item.suggestedCat].label;
+    return `<span class="import-row-cat unknown" onclick="createSuggestedCat('${item.id}')">+ Skapa "${label}"</span>`;
+  }
   if(item.subcatId==='income'){
     return `<span class="import-row-cat excluded" onclick="openImportCatPicker('${item.id}')">Inkomst</span>`;
   }
@@ -1097,6 +1158,23 @@ function categoryBadgeHTML(item){
     return `<span class="import-row-cat excluded" onclick="openImportCatPicker('${item.id}')">${meta.label}</span>`;
   }
   return `<span class="import-row-cat" style="background:${meta.catColor}22;color:${meta.catColor}" onclick="openImportCatPicker('${item.id}')">${meta.label}</span>`;
+}
+// Skapar underkategorin som föreslogs av en ML-regel (kollektivtrafik/resa/paket-frakt) under
+// dess förvalda huvudkategori, och tilldelar direkt den här transaktionen till den nya kategorin.
+function createSuggestedCat(itemId){
+  if(!importCtx)return;
+  const item=importCtx.items.find(i=>i.id===itemId);
+  if(!item||!item.suggestedCat)return;
+  const sugg=PENDING_CATEGORY_SUGGESTIONS[item.suggestedCat];
+  if(!sugg)return;
+  const parent=getCat(sugg.parentId);
+  if(!parent)return;
+  const newId=uid();
+  parent.subcats.push({id:newId,label:sugg.label,note:null,type:sugg.type});
+  saveCats();
+  item.subcatId=newId;
+  item.suggestedCat=null;
+  renderImportReview();
 }
 
 function renderImportReview(){
@@ -1148,19 +1226,23 @@ function renderImportReview(){
   document.getElementById('import-footer-summary').textContent=`${fmt(sumKr)} kr läggs till loggen för ${keyLabel(importCtx.period)}`;
 }
 
-function openImportCatPicker(itemId){
-  if(!importCtx)return;
-  importCtx.editingId=itemId;
-  const list=document.getElementById('import-cat-list');
-  let html=`<div class="import-cat-option" onclick="selectImportCat(null)"><span class="row-dot" style="background:var(--text2)"></span>Okategoriserad / ignorera</div>`;
-  html+=`<div class="import-cat-option" onclick="selectImportCat('income')"><span class="row-dot" style="background:var(--green)"></span>Inkomst</div>`;
+// Delad options-lista för kategorival — används både vid import-granskning och vid
+// omkategorisering av en redan sparad transaktion (tx-listan i Logg).
+function catPickerOptionsHTML(fnName){
+  let html=`<div class="import-cat-option" onclick="${fnName}(null)"><span class="row-dot" style="background:var(--text2)"></span>Okategoriserad / ignorera</div>`;
+  html+=`<div class="import-cat-option" onclick="${fnName}('income')"><span class="row-dot" style="background:var(--green)"></span>Inkomst</div>`;
   cats.forEach(cat=>{
     html+=`<div class="import-cat-group-label">${cat.label}</div>`;
     cat.subcats.forEach(sc=>{
-      html+=`<div class="import-cat-option" onclick="selectImportCat('${sc.id}')"><span class="row-dot" style="background:${cat.color}"></span>${sc.label}</div>`;
+      html+=`<div class="import-cat-option" onclick="${fnName}('${sc.id}')"><span class="row-dot" style="background:${cat.color}"></span>${sc.label}</div>`;
     });
   });
-  list.innerHTML=html;
+  return html;
+}
+function openImportCatPicker(itemId){
+  if(!importCtx)return;
+  importCtx.editingId=itemId;
+  document.getElementById('import-cat-list').innerHTML=catPickerOptionsHTML('selectImportCat');
   openOverlay('import-cat-overlay');
 }
 function closeImportCatOverlay(e){
@@ -1172,9 +1254,62 @@ function selectImportCat(subcatId){
   if(!item)return;
   const prev=item.subcatId;
   item.subcatId=subcatId;
+  item.suggestedCat=null;
   closeOverlay('import-cat-overlay');
   renderImportReview();
   if(subcatId && subcatId!==prev) openLearnRule(item, subcatId);
+}
+
+// ======= TX-LISTA: se & kategorisera om enskilda importerade transaktioner =======
+let txListCtx=null;  // {period, subcatId} — subcatId===null betyder "okategoriserade"
+let txRecatCtx=null; // {period, txId}
+function openTxList(period, subcatId, label){
+  txListCtx={period, subcatId};
+  document.getElementById('txlist-title').textContent=label+' · '+periodLabel(period);
+  renderTxList();
+  openOverlay('txlist-overlay');
+}
+function renderTxList(){
+  if(!txListCtx)return;
+  const {period,subcatId}=txListCtx;
+  const list=(transactions[period]||[])
+    .filter(t=>subcatId===null?!t.subcatId:t.subcatId===subcatId)
+    .slice()
+    .sort((a,b)=>b.dateISO.localeCompare(a.dateISO));
+  const el=document.getElementById('txlist-items');
+  if(!list.length){
+    el.innerHTML=`<div class="empty-state"><div class="empty-text">Inga transaktioner här.</div></div>`;
+    return;
+  }
+  el.innerHTML=list.map(t=>`
+    <div class="import-row">
+      <div class="import-row-main">
+        <div class="import-row-rubrik">${escapeHtml(t.rubrik)}</div>
+        <div class="import-row-date">${t.dateISO}</div>
+      </div>
+      <div class="import-row-amount">${fmt(-t.amount)} kr</div>
+      <span class="import-row-cat" onclick="openTxCatPicker('${period}','${t.id}')">Flytta</span>
+    </div>
+  `).join('');
+}
+function openTxCatPicker(period, txId){
+  txRecatCtx={period, txId};
+  document.getElementById('import-cat-list').innerHTML=catPickerOptionsHTML('selectTxCat');
+  openOverlay('import-cat-overlay');
+}
+function selectTxCat(subcatId){
+  if(!txRecatCtx)return;
+  const list=transactions[txRecatCtx.period]||[];
+  const tx=list.find(t=>t.id===txRecatCtx.txId);
+  txRecatCtx=null;
+  closeOverlay('import-cat-overlay');
+  if(!tx)return;
+  const prev=tx.subcatId;
+  tx.subcatId=subcatId;
+  saveTransactions();
+  renderTxList();
+  renderLogg();
+  if(subcatId && subcatId!==prev) openLearnRule(tx, subcatId);
 }
 
 function openLearnRule(item, subcatId){
@@ -1600,7 +1735,7 @@ function executeDelete(){
       saveCats();saveBudget();saveLog();
       closeCatEditor();
     }
-  }else{
+  }else if(delCtx.type==='subcat'){
     const cat=getCat(delCtx.catId);
     if(cat){
       purgeSubcatData(delCtx.subcatId);
@@ -1608,8 +1743,24 @@ function executeDelete(){
       saveCats();saveBudget();saveLog();
       renderCatEditor();
     }
+  }else if(delCtx.type==='import-period'){
+    delete transactions[delCtx.period];
+    saveTransactions();
+    renderLogg();
   }
   closeOverlay('del-overlay');delCtx=null;
+}
+
+// Tömmer bara IMPORTERADE transaktioner för den period man tittar på i Logg (manuellt
+// inmatade belopp påverkas inte) — så man kan köra CSV-importen igen från noll.
+function confirmDeleteImport(){
+  const period=currentLogMonth;
+  const count=(transactions[period]||[]).length;
+  if(!count){ alert('Inga importerade transaktioner för denna period.'); return; }
+  delCtx={type:'import-period', period};
+  document.getElementById('del-title').textContent=`Radera import för ${keyLabel(period)}?`;
+  document.getElementById('del-warning').textContent=`${count} importerad${count!==1?'e':''} transaktion${count!==1?'er':''} tas bort. Manuellt inmatade belopp påverkas inte. Du kan importera CSV:n igen direkt efteråt.`;
+  openOverlay('del-overlay');
 }
 
 function purgeSubcatData(subcatId){
