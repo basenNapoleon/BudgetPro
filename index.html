@@ -91,6 +91,13 @@
     .diff-ok{color:var(--green)}
     .diff-over{color:var(--red)}
 
+    /* Logg swipe viewport (track of 3 panes: prev / current / next month) */
+    #page-logg{flex-direction:column;padding-top:0}
+    #page-logg.active{display:flex}
+    .log-viewport{flex:1 1 auto;position:relative;overflow:hidden}
+    .log-track{display:flex;width:300%;height:100%;transform:translateX(-33.3333%)}
+    .log-pane{width:33.3333%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch}
+
     /* Analys */
     .analys-toggle-wrap{display:flex;margin:0 1.25rem 1rem;gap:.5rem}
     .toggle-btn{flex:1;padding:.55rem;border:1px solid var(--border);border-radius:10px;background:transparent;font-family:inherit;font-size:13px;font-weight:500;color:var(--text2);cursor:pointer;-webkit-tap-highlight-color:transparent}
@@ -254,8 +261,13 @@
     <div class="sum-item"><div class="sum-item-label">Budget</div><div class="sum-item-val" id="log-budget-total">0 kr</div></div>
     <div class="sum-item"><div class="sum-item-label">Differens</div><div class="sum-item-val" id="log-diff">0 kr</div></div>
   </div>
-  <div id="log-categories"></div>
-  <div class="pb"></div>
+  <div class="log-viewport" id="log-viewport">
+    <div class="log-track" id="log-track">
+      <div class="log-pane" id="log-pane-prev"></div>
+      <div class="log-pane" id="log-pane-cur"></div>
+      <div class="log-pane" id="log-pane-next"></div>
+    </div>
+  </div>
 </div>
 
 <!-- ===== ANALYS ===== -->
@@ -724,7 +736,17 @@ function saveCustomRules(){localStorage.setItem(CUSTOM_RULES_KEY,JSON.stringify(
 // ======= UTILS =======
 function toKey(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')}
 function thisMonth(){return toKey(new Date())}
+function shiftMonthKey(key,delta){const[y,m]=key.split('-').map(Number);return toKey(new Date(y,m-1+delta,1))}
 function periodComplete(k){const[y,m]=k.split('-').map(Number);return new Date()>new Date(y,m-1,25,23,59,59)}
+// Vilken period är "aktiv" i Logg-fliken just nu, enligt 25-25-regeln.
+// En period (t.ex. "Juli" = 25 jun–25 jul) blir bara nåbar/aktiv efter att
+// den faktiskt avslutats, dvs efter den 25:e i sin egen kalendermånad.
+function currentLogPeriodKey(){
+  let k=thisMonth();
+  let guard=0;
+  while(!periodComplete(k)&&guard<3){k=shiftMonthKey(k,-1);guard++;}
+  return k;
+}
 function keyLabel(k){const[y,m]=k.split('-');return MONTHS_FULL[+m-1]+' '+y}
 function periodLabel(k){const[,m]=k.split('-').map(Number);return`25 ${MONTHS_SHORT[(m-2+12)%12]} – 25 ${MONTHS_SHORT[m-1]}`}
 function fmt(n){return Math.round(n||0).toLocaleString('sv-SE')}
@@ -790,7 +812,7 @@ function renderBudget(){
   });
 
   // Banner
-  const tm=thisMonth();
+  const tm=currentLogPeriodKey();
   document.getElementById('b-banner').style.display=log[tm]?'none':'flex';
   document.getElementById('b-banner-month').textContent=keyLabel(tm);
 
@@ -815,11 +837,41 @@ function renderBudget(){
 }
 
 // ======= LOGG TAB =======
-function renderLogg(){
-  if(!currentLogMonth)currentLogMonth=thisMonth();
+// Bygger kategorilistan för EN given period-nyckel — återanvänds för alla tre
+// paneler (föregående/nuvarande/nästa) i swipe-tracket nedan.
+function buildLogPaneHTML(key){
+  const entry=log[key]||{};
+  let html='';
+  cats.forEach(cat=>{
+    const sub=cat.subcats.filter(s=>s.type!=='fixed');
+    if(!sub.length)return;
+    html+=`<div class="section"><div class="section-label">${cat.label}</div><div class="card">`;
+    sub.forEach(sc=>{
+      const bv=sc.type==='log-only'?null:(budget[sc.id]||0);
+      const manual=entry[sc.id]||0;
+      const imported=getImportedSum(key,sc.id);
+      const total=manual+imported;
+      const notes=[bv!==null?`budget: ${fmt(bv)} kr`:'ingen budget'];
+      if(imported)notes.push(`varav importerat: ${fmt(imported)} kr`);
+      html+=`<div class="row">
+        <span class="row-dot" style="background:${cat.color}"></span>
+        <span class="row-label">${sc.label}<small>${notes.join(' · ')}</small></span>
+        <span class="row-value editable" onclick="openNumModal('${sc.id}','${sc.label}','log','${key}')">
+          <span>${fmt(total)}</span> kr
+        </span>
+      </div>`;
+    });
+    html+=`</div></div>`;
+  });
+  html+=`<div class="pb"></div>`;
+  return html;
+}
+
+// Uppdaterar bara headern (månadsnamn, period, badge, nästa-knappens opacity) för currentLogMonth.
+function renderLogHeader(){
   const entry=log[currentLogMonth]||{};
   const isLogged=!!log[currentLogMonth];
-  const isCurrent=currentLogMonth===thisMonth();
+  const isCurrent=currentLogMonth===currentLogPeriodKey();
   const logSubs=getLogSubcats();
   const logBudgetTotal=availableForVariable();
   const logTotal=logSubs.reduce((s,c)=>s+(entry[c.id]||0)+getImportedSum(currentLogMonth,c.id),0);
@@ -835,38 +887,86 @@ function renderLogg(){
   const dEl=document.getElementById('log-diff');
   dEl.textContent=(diff>=0?'+':'')+fmt(diff)+' kr';
   dEl.className='sum-item-val '+(diff<=0?'diff-ok':'diff-over');
+}
 
-  let html='';
-  cats.forEach(cat=>{
-    const sub=cat.subcats.filter(s=>s.type!=='fixed');
-    if(!sub.length)return;
-    html+=`<div class="section"><div class="section-label">${cat.label}</div><div class="card">`;
-    sub.forEach(sc=>{
-      const bv=sc.type==='log-only'?null:(budget[sc.id]||0);
-      const manual=entry[sc.id]||0;
-      const imported=getImportedSum(currentLogMonth,sc.id);
-      const total=manual+imported;
-      const notes=[bv!==null?`budget: ${fmt(bv)} kr`:'ingen budget'];
-      if(imported)notes.push(`varav importerat: ${fmt(imported)} kr`);
-      html+=`<div class="row">
-        <span class="row-dot" style="background:${cat.color}"></span>
-        <span class="row-label">${sc.label}<small>${notes.join(' · ')}</small></span>
-        <span class="row-value editable" onclick="openNumModal('${sc.id}','${sc.label}','log')">
-          <span id="lv-${sc.id}">${fmt(total)}</span> kr
-        </span>
-      </div>`;
-    });
-    html+=`</div></div>`;
-  });
-  document.getElementById('log-categories').innerHTML=html;
+// Full omritning av de tre panelerna runt currentLogMonth — körs när Logg-fliken
+// öppnas eller efter navigering (pil eller genomförd swipe).
+function renderLogg(){
+  if(!currentLogMonth)currentLogMonth=currentLogPeriodKey();
+  refreshLogVw();
+  renderLogHeader();
+  document.getElementById('log-pane-prev').innerHTML=buildLogPaneHTML(shiftMonthKey(currentLogMonth,-1));
+  document.getElementById('log-pane-cur').innerHTML=buildLogPaneHTML(currentLogMonth);
+  document.getElementById('log-pane-next').innerHTML=currentLogMonth===currentLogPeriodKey()?'':buildLogPaneHTML(shiftMonthKey(currentLogMonth,1));
+  logSetTransform(0,false);
 }
 
 function changeLogMonth(delta){
-  const[y,m]=currentLogMonth.split('-').map(Number);
-  const nk=toKey(new Date(y,m-1+delta,1));
-  if(nk>thisMonth())return;
+  const nk=shiftMonthKey(currentLogMonth,delta);
+  if(nk>currentLogPeriodKey())return;
   currentLogMonth=nk;renderLogg();
 }
+
+// ======= LOGG SWIPE (track följer fingret, 3 paneler, snap/återcentrera) =======
+const logTrack=document.getElementById('log-track');
+const logViewport=document.getElementById('log-viewport');
+let logVw=0;
+function refreshLogVw(){
+  // Måste räknas om varje gång Logg-fliken visas, eftersom den har display:none
+  // när den inte är aktiv -> clientWidth skulle annars läsas som 0 och aldrig uppdateras.
+  const w=logViewport.clientWidth;
+  if(w>0)logVw=w;
+}
+window.addEventListener('resize',refreshLogVw);
+function logSetTransform(px,animate){
+  logTrack.style.transition=animate?'transform .28s cubic-bezier(.32,.72,0,1)':'none';
+  logTrack.style.transform=`translateX(${(-logVw)+px}px)`;
+}
+let logDragging=false,logLockedAxis=null,logStartX=0,logStartY=0,logDx=0;
+function logOnStart(x,y){
+  refreshLogVw();
+  logDragging=true;logLockedAxis=null;logStartX=x;logStartY=y;logDx=0;
+  logSetTransform(0,false);
+}
+function logOnMove(x,y){
+  if(!logDragging)return;
+  const ddx=x-logStartX,ddy=y-logStartY;
+  if(logLockedAxis===null){
+    if(Math.abs(ddx)>6||Math.abs(ddy)>6) logLockedAxis=Math.abs(ddx)>Math.abs(ddy)?'x':'y';
+  }
+  if(logLockedAxis==='x'){
+    let proposed=ddx;
+    // Kan aldrig swipa förbi nuvarande loggbara period framåt. Ingen spärr bakåt (obegränsad historik).
+    if(currentLogMonth===currentLogPeriodKey()) proposed=Math.max(proposed,0);
+    logDx=proposed;
+    logSetTransform(logDx,false);
+  }
+}
+function logOnEnd(){
+  if(!logDragging)return;
+  logDragging=false;
+  if(logLockedAxis==='x'){
+    const threshold=logVw*0.22;
+    if(logDx<-threshold){
+      changeLogMonth(1);
+    }else if(logDx>threshold){
+      changeLogMonth(-1);
+    }else{
+      logSetTransform(0,true);
+    }
+  }
+  logLockedAxis=null;logDx=0;
+}
+logViewport.addEventListener('touchstart',e=>{const t=e.touches[0];logOnStart(t.clientX,t.clientY);},{passive:true});
+logViewport.addEventListener('touchmove',e=>{
+  const t=e.touches[0];logOnMove(t.clientX,t.clientY);
+  if(logLockedAxis==='x')e.preventDefault();
+},{passive:false});
+logViewport.addEventListener('touchend',logOnEnd,{passive:true});
+let logMouseDown=false;
+logViewport.addEventListener('mousedown',e=>{logMouseDown=true;logOnStart(e.clientX,e.clientY);});
+window.addEventListener('mousemove',e=>{if(logMouseDown)logOnMove(e.clientX,e.clientY);});
+window.addEventListener('mouseup',()=>{if(logMouseDown){logMouseDown=false;logOnEnd();}});
 
 // ======= CSV IMPORT =======
 function parseAmount(raw){
@@ -1455,13 +1555,13 @@ function purgeSubcatData(subcatId){
 }
 
 // ======= NUMBER MODAL =======
-function openNumModal(key,label,scope='budget'){
-  numCtx={key,scope};
+function openNumModal(key,label,scope='budget',logMonth=null){
+  numCtx={key,scope,logMonth:logMonth||currentLogMonth};
   document.getElementById('num-title').textContent=label;
   const noteEl=document.getElementById('num-imported-note');
   if(scope==='log'){
-    const manual=log[currentLogMonth]?.[key]||0;
-    const imported=getImportedSum(currentLogMonth,key);
+    const manual=log[numCtx.logMonth]?.[key]||0;
+    const imported=getImportedSum(numCtx.logMonth,key);
     if(imported){
       noteEl.textContent=`Importerat: ${fmt(imported)} kr · fältet nedan är manuellt tillägg`;
       noteEl.style.display='block';
@@ -1483,8 +1583,9 @@ function saveNumModal(){
   const val=parseInt(document.getElementById('num-input').value)||0;
   if(numCtx.scope==='budget'){budget[numCtx.key]=val;saveBudget();renderBudget();}
   else{
-    if(!log[currentLogMonth])log[currentLogMonth]={};
-    log[currentLogMonth][numCtx.key]=val;saveLog();renderLogg();
+    const mk=numCtx.logMonth||currentLogMonth;
+    if(!log[mk])log[mk]={};
+    log[mk][numCtx.key]=val;saveLog();renderLogg();
   }
   closeOverlay('num-overlay');numCtx=null;
 }
@@ -1498,23 +1599,6 @@ function closeDelOverlay(e){if(!e||e.target===document.getElementById('del-overl
 
 document.getElementById('num-input').addEventListener('keydown',e=>{if(e.key==='Enter')saveNumModal()});
 document.getElementById('text-input').addEventListener('keydown',e=>{if(e.key==='Enter')saveTextModal()});
-
-// ======= SWIPE (Logg page month navigation) =======
-(function(){
-  const el=document.getElementById('page-logg');
-  let startX=0,startY=0,tracking=false;
-  el.addEventListener('touchstart',e=>{
-    startX=e.touches[0].clientX;startY=e.touches[0].clientY;tracking=true;
-  },{passive:true});
-  el.addEventListener('touchend',e=>{
-    if(!tracking)return;tracking=false;
-    const dx=e.changedTouches[0].clientX-startX;
-    const dy=e.changedTouches[0].clientY-startY;
-    if(Math.abs(dx)>60&&Math.abs(dx)>Math.abs(dy)*1.5){
-      if(dx<0)changeLogMonth(1); else changeLogMonth(-1);
-    }
-  },{passive:true});
-})();
 
 // ======= BOOT =======
 loadAll();
