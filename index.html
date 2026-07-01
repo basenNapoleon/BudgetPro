@@ -174,9 +174,9 @@
     .import-list{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch}
     .import-group-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text2);padding:1rem 1.25rem .4rem}
     .import-group-note{font-size:12px;color:var(--text2);padding:0 1.25rem .6rem;line-height:1.4}
-    .import-row{display:flex;align-items:center;gap:.6rem;padding:.65rem 1.25rem;border-bottom:1px solid var(--border);background:var(--card)}
+    .import-row{display:flex;align-items:flex-start;gap:.6rem;padding:.65rem 1.25rem;border-bottom:1px solid var(--border);background:var(--card)}
     .import-row-main{flex:1;min-width:0}
-    .import-row-rubrik{font-size:14px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .import-row-rubrik{font-size:14px;color:var(--text);word-break:break-word;line-height:1.35}
     .import-row-date{font-size:11px;color:var(--text2);margin-top:1px}
     .import-row-amount{font-size:13px;font-weight:600;flex-shrink:0;width:72px;text-align:right}
     .import-row-cat{flex-shrink:0;padding:.3rem .6rem;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent;white-space:nowrap;max-width:120px;overflow:hidden;text-overflow:ellipsis}
@@ -286,6 +286,10 @@
       <div id="suggested-add-wrap" style="margin-top:.6rem;display:none">
         <button class="modal-btn" onclick="addSuggestedCats()">Lägg till valda</button>
       </div>
+    </div>
+    <div class="section">
+      <div class="section-label">Egna regler</div>
+      <div id="custom-rules-card" class="card"></div>
     </div>
     <div class="pb"></div>
   </div>
@@ -484,6 +488,19 @@ const STREAMING_SUBS = ['NETFLIX','HBO','VIAPLAY','DISNEY+','DISNEYPLUS','SKYSHO
 const INSURANCE = ['FOLKSAM','HEDVIG','IF FÖRSÄKRING','IF SKADEFÖRSÄKRING','TRYGG-HANSA','LÄNSFÖRSÄKRINGAR'];
 const SHOPPING_MERCHANTS = ['JULA','BILTEMA','ELGIGANTEN','MEDIA MARKT','MEDIAMARKT','NETONNET','WEBHALLEN','KJELL & COMPANY','KJELL','CLAS OHLSON','TRADERA','SELLPY','IKEA','H&M','LINDEX','KAPPAHL','STADIUM','INTERSPORT','ÅHLÉNS','AHLENS','ZARA','GINA TRICOT'];
 const LEISURE_MERCHANTS = ['SYSTEMBOLAGET','TICKETMASTER','FILMSTADEN','SF BIO','EVENTIM'];
+
+// Nordea-prefix som förekommer före det faktiska butiksnamnet
+const NORDEA_PREFIXES = ['Kortköp', 'Autogiro', 'Swish betalning', 'Swish inbetalning', 'Bankgiro', 'Plusgiro', 'Överföring', 'Uttag', 'Insättning', 'Direktbetalning'];
+
+function stripNordeaPrefix(rubrik){
+  for(const p of NORDEA_PREFIXES){
+    if(rubrik.toUpperCase().startsWith(p.toUpperCase())){
+      const rest = rubrik.slice(p.length).trim();
+      return rest || rubrik; // returnera original om inget butiksnamn finns kvar
+    }
+  }
+  return rubrik;
+}
 
 function includesAny(upper, list){ return list.some(s=>upper.includes(s)); }
 
@@ -890,7 +907,11 @@ function selectImportCat(subcatId){
 
 function openLearnRule(item, subcatId){
   learnCtx={item,subcatId};
-  const pattern=(item.rubrik.split(/\d/)[0]||item.rubrik).trim() || item.rubrik;
+  // Strippa Nordea-prefix (t.ex. "Kortköp", "Autogiro") så mönstret
+  // baseras på butiksnamnet, inte transaktionstypen
+  const stripped=stripNordeaPrefix(item.rubrik);
+  // Klipp vid första siffran (artikelnummer/terminalid) men behåll butiksnamnet
+  const pattern=(stripped.split(/\d/)[0]||stripped).trim() || stripped;
   document.getElementById('learn-pattern-input').value=pattern;
   const meta=subcatMeta(subcatId);
   document.getElementById('learn-cat-label').textContent=subcatId==='income'?'Inkomst':(meta?meta.label:'okänd kategori');
@@ -1087,6 +1108,35 @@ function toggleSuggestion(label){
   if(selectedSuggestions.has(label))selectedSuggestions.delete(label);
   else selectedSuggestions.add(label);
   renderSuggestions();
+  renderCustomRules();
+}
+
+function renderCustomRules(){
+  const card=document.getElementById('custom-rules-card');
+  if(!card)return;
+  if(!customRules.length){
+    card.innerHTML='<div class="row"><span class="row-label" style="color:var(--text2)">Inga egna regler ännu</span></div>';
+    return;
+  }
+  let html='';
+  customRules.forEach(r=>{
+    const meta=subcatMeta(r.subcatId);
+    const catLabel=r.subcatId==='income'?'Inkomst':(meta?meta.label:'Okänd');
+    html+=`<div class="row">
+      <span class="row-dot" style="background:${meta?meta.catColor:'var(--text2)'}"></span>
+      <span class="row-label">${r.pattern}<small>${catLabel}</small></span>
+      <div class="row-btns">
+        <button class="row-btn danger" onclick="deleteCustomRule('${r.id}')">✕</button>
+      </div>
+    </div>`;
+  });
+  card.innerHTML=html;
+}
+
+function deleteCustomRule(id){
+  customRules=customRules.filter(r=>r.id!==id);
+  saveCustomRules();
+  renderCustomRules();
 }
 
 function addSuggestedCats(){
