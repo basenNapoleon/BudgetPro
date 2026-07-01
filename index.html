@@ -478,11 +478,146 @@ const SUGGESTED_CATS = [
     {label:'Presenter', type:'variable'}]},
 ];
 
+// ======= ML-GENERERADE REGLER (2026-07-01) =======
+// Extraherade av train_categorizer.py ur Oskars labelade Nordea-historik (5993 rader).
+// Varje mönster validerat mot all labeled data: precision >=92% OCH max 3 absoluta felträffar,
+// samt filtrerat mot appens inbyggda regler nedan (redundanta mönster borttagna).
+// 4 STF-relaterade mönster (STF FJALLSTATION GRO/GROVELSJON/HELAGS m.fl.) uteslöts medvetet —
+// se project-memory: STF ska hellre bli en "kräver alltid manuellt val"-regel (ej byggd än)
+// än en auto-regel, oavsett vad historiken råkar visa.
+// OBS: paket-frakt/kollektivtrafik/resa är nya kategorier som måste skapas under Inställningar
+// innan dessa specifika regler gör någon skillnad (matchar men landar i "okänd kategori" tills dess).
+const DEFAULT_CUSTOM_RULES = [
+  {id:'b58cc3a7',pattern:'OPEN BANKING BG 282-4647 TRÄNGSELSK',subcatId:'parking'},
+  {id:'2e681d49',pattern:'BETALNING BG 626-3867 SVERIGES INGE',subcatId:'homeins'},
+  {id:'2da3bff2',pattern:'BETALNING PG 4772700-3 EQ TIMING AS',subcatId:'leisure'},
+  {id:'9d81af44',pattern:'BETALNING BG 702-2643 WILLHEM AB',subcatId:'rent'},
+  {id:'ffdc8d94',pattern:'MÅNADSSPAR 95541752304',subcatId:'save'},
+  {id:'bf4df782',pattern:'TORGBODEN I BOVALLST',subcatId:'resto'},
+  {id:'0b274e6b',pattern:'MAX BURGERS 2010097_',subcatId:'resto'},
+  {id:'3f74e305',pattern:'HAVSBADET NOJE I LYS',subcatId:'resto'},
+  {id:'0277ec1d',pattern:'UBER   * EATS PENDIN',subcatId:'resto'},
+  {id:'8aa33112',pattern:'KAKEL KOK & BAR AB -',subcatId:'resto'},
+  {id:'fcf3692e',pattern:'SUMUP  *HBK ELITFOTB',subcatId:'leisure'},
+  {id:'965858d0',pattern:'BASTARD BURGER HALMS',subcatId:'resto'},
+  {id:'db5e1ad4',pattern:'ZETTLE_*HALMSTAD KLA',subcatId:'snacks'},
+  {id:'abdf31bc',pattern:'HAMNKROGEN I FALKENB',subcatId:'resto'},
+  {id:'ddb56190',pattern:'CONNY CENTER I BFS A',subcatId:'snacks'},
+  {id:'a6eec535',pattern:'TRE MATNORDAR TILLSA',subcatId:'resto'},
+  {id:'7a8c24f3',pattern:'MAX BURGERS 2010051_',subcatId:'resto'},
+  {id:'99680c15',pattern:'MAX BURGERS 2010013_',subcatId:'resto'},
+  {id:'6fa379b0',pattern:'FABRIQUE RUTE STENUG',subcatId:'resto'},
+  {id:'fb76e780',pattern:'MANGOLD RESTAURANGER',subcatId:'resto'},
+  {id:'4e551f5c',pattern:'SUMUP  *HALMSTAD STU',subcatId:'snacks'},
+  {id:'bd2df431',pattern:'SAS         11725265',subcatId:'kollektivtrafik'},
+  {id:'5b9c1ced',pattern:'MAT & CITRON AB - BA',subcatId:'resto'},
+  {id:'4ceffbbd',pattern:'BASTARD BURGERS HALM',subcatId:'resto'},
+  {id:'c5fe9dbe',pattern:'2502 CERVERA HALMSTA',subcatId:'shopping'},
+  {id:'a1fb6054',pattern:'DELIVERY HERO SWEDEN',subcatId:'resto'},
+  {id:'4637671f',pattern:'ZTL*HALMSTAD KLATTER',subcatId:'snacks'},
+  {id:'14a7a466',pattern:'ADOBE PHOTOGPHY PLAN',subcatId:'subs'},
+  {id:'8de08184',pattern:'NESPRESSO E COMMERCE',subcatId:'food'},
+  {id:'2315586d',pattern:'SVENSKA POSTKODFÖREN',subcatId:'subs'},
+  {id:'d19879a5',pattern:'CAF MANGOLD KLANG  C',subcatId:'snacks'},
+  {id:'efa2b4e2',pattern:'BAGERIET BJORNRIKET',subcatId:'resto'},
+  {id:'d766bb25',pattern:'HEMMAKVALL HALMSTAD',subcatId:'snacks'},
+  {id:'17db9fc9',pattern:'HALMSTAD STUDENTKAR',subcatId:'snacks'},
+  {id:'3a272731',pattern:'RUSTA   18 HALMSTAD',subcatId:'shopping'},
+  {id:'31d2dab0',pattern:'NATURKOMPANIET   64',subcatId:'shopping'},
+  {id:'8cae05f0',pattern:'CAFE MANGOLD (KLANG',subcatId:'snacks'},
+  {id:'62b029f5',pattern:'KLARNA *SKISTAR COM',subcatId:'leisure'},
+  {id:'626831ce',pattern:'THAIWOKIHALMSTADAB',subcatId:'resto'},
+  {id:'e4175ed2',pattern:'SALONG GULA VILLAN',subcatId:'leisure'},
+  {id:'ddb6acb7',pattern:'OSTRA LYCKANS LIVS',subcatId:'food'},
+  {id:'032ca67a',pattern:'IZ *HALMSTAD KLATT',subcatId:'snacks'},
+  {id:'1fbc568f',pattern:'LAGER 157 HALMSTAD',subcatId:'shopping'},
+  {id:'317108d3',pattern:'LION BAR HALMSTAD',subcatId:'resto'},
+  {id:'95fcca4b',pattern:'VOLT T39 HALMSTAD',subcatId:'shopping'},
+  {id:'e4a8ef1e',pattern:'PREEM FALKENBERG',subcatId:'fuel'},
+  {id:'9e0eae1a',pattern:'AHMED MUSTAFA HB',subcatId:'food'},
+  {id:'78501234',pattern:'UNDER PRODUKTION',subcatId:'leisure'},
+  {id:'4185930e',pattern:'GOTEBORG CENTRAL',subcatId:'kollektivtrafik'},
+  {id:'419b0a33',pattern:'RESTAURANG MEZZO',subcatId:'resto'},
+  {id:'a753cedc',pattern:'GÖTEBORG CENTRAL',subcatId:'kollektivtrafik'},
+  {id:'68b26700',pattern:'HALLANDSTRAFIKE',subcatId:'kollektivtrafik'},
+  {id:'8084435e',pattern:'AKADEMIBOKHANDE',subcatId:'leisure'},
+  {id:'5f9202ae',pattern:'TANKA HUNNEBOST',subcatId:'fuel'},
+  {id:'a226d2b6',pattern:'SPORTSHOPEN TAN',subcatId:'shopping'},
+  {id:'e8b19446',pattern:'BILLETTO SWEDEN',subcatId:'leisure'},
+  {id:'567867ad',pattern:'CAFE MANGOLD AB',subcatId:'snacks'},
+  {id:'acf2c212',pattern:'RODA KVARN HALM',subcatId:'leisure'},
+  {id:'a649e2dc',pattern:'RESTAURANG O BO',subcatId:'resto'},
+  {id:'deff0e50',pattern:'XXL SPORT O VIL',subcatId:'shopping'},
+  {id:'eb2c1906',pattern:'NYHEMS PIZZERIA',subcatId:'resto'},
+  {id:'a234175f',pattern:'FIRST CAMP SVER',subcatId:'snacks'},
+  {id:'500080fc',pattern:'BLOMSTERLANDET',subcatId:'shopping'},
+  {id:'9fc23ce7',pattern:'RYDE SWEDEN AB',subcatId:'kollektivtrafik'},
+  {id:'4d8f41d4',pattern:'BRITTS GATUKOK',subcatId:'resto'},
+  {id:'e570743b',pattern:'SIMONS LAGPRIS',subcatId:'food'},
+  {id:'4f504b5d',pattern:'APPLE COM BILL',subcatId:'phone'},
+  {id:'8d810d80',pattern:'LOLLIPOP KIOSK',subcatId:'snacks'},
+  {id:'375e3591',pattern:'HB SVENSKA BIO',subcatId:'leisure'},
+  {id:'2c34a521',pattern:'MAX I HALMSTAD',subcatId:'resto'},
+  {id:'d55a9737',pattern:'BARLIN BAGERI',subcatId:'snacks'},
+  {id:'5422d969',pattern:'ALADDIN KIOSK',subcatId:'snacks'},
+  {id:'614dd43c',pattern:'ZIGGES GARAGE',subcatId:'resto'},
+  {id:'30edee6e',pattern:'ZTL*CAFE NARA',subcatId:'snacks'},
+  {id:'b755987f',pattern:'IZ *CAFE NARA',subcatId:'snacks'},
+  {id:'efcefb19',pattern:'FESTAURANGEN',subcatId:'resto'},
+  {id:'b5152ff4',pattern:'PARKSTER SWE',subcatId:'parking'},
+  {id:'f24e2e87',pattern:'K*HOUDINISPO',subcatId:'shopping'},
+  {id:'c94f1868',pattern:'K*BASTARD BU',subcatId:'resto'},
+  {id:'82520d49',pattern:'K*SYSTEMBOLA',subcatId:'resto'},
+  {id:'21748441',pattern:'K*EU.STORE.B',subcatId:'shopping'},
+  {id:'d306729b',pattern:'K*AIRBNB * H',subcatId:'resa'},
+  {id:'6baedd26',pattern:'K*ZETTLE_*HA',subcatId:'snacks'},
+  {id:'e3595a42',pattern:'K*OPENAI *CH',subcatId:'subs'},
+  {id:'d5a5cba9',pattern:'SKAPAKIOSKEN',subcatId:'resto'},
+  {id:'ad64cdb3',pattern:'K*DESTINATIO',subcatId:'kollektivtrafik'},
+  {id:'47b5d7ac',pattern:'K*AMAZONMKTP',subcatId:'shopping'},
+  {id:'f3e9d8aa',pattern:'ODD BALLS AB',subcatId:'resto'},
+  {id:'cdbaf748',pattern:'K*NATURKOMPA',subcatId:'shopping'},
+  {id:'6a572922',pattern:'K*MANGOLD RE',subcatId:'snacks'},
+  {id:'eb4fd177',pattern:'K*RESTAURANG',subcatId:'resto'},
+  {id:'7a0f5d81',pattern:'K*CANTALOUPE',subcatId:'subs'},
+  {id:'d917558e',pattern:'K*WOOLWORTHS',subcatId:'food'},
+  {id:'91c5a973',pattern:'K*UNITED PET',subcatId:'snacks'},
+  {id:'bd36650b',pattern:'ORIENT GRILL',subcatId:'resto'},
+  {id:'a7672fd4',pattern:'DISNEY PLUS',subcatId:'subs'},
+  {id:'d9d17c4f',pattern:'SLANGTORNET',subcatId:'resto'},
+  {id:'aa03b522',pattern:'SIMONS LIVS',subcatId:'food'},
+  {id:'08cb6655',pattern:'MY WAY SALI',subcatId:'food'},
+  {id:'12b4404b',pattern:'MISTER YORK',subcatId:'resto'},
+  {id:'9eb12f45',pattern:'K*NESPRESSO',subcatId:'food'},
+  {id:'bced12da',pattern:'OSTRAS BROD',subcatId:'snacks'},
+  {id:'34ef1827',pattern:'SJ MOBILAPP',subcatId:'kollektivtrafik'},
+  {id:'4f3583a9',pattern:'STUDIESTÖD',subcatId:'income'},
+  {id:'582e85b6',pattern:'K*NIKE.COM',subcatId:'shopping'},
+  {id:'7b3ece52',pattern:'SIMOS LIVS',subcatId:'food'},
+  {id:'7f5dbb89',pattern:'FRU BAR AB',subcatId:'food'},
+  {id:'f459b3b2',pattern:'HOM SE0406',subcatId:'shopping'},
+  {id:'bca16c88',pattern:'547021089',subcatId:'income'},
+  {id:'706a87b0',pattern:'THE BULLS',subcatId:'resto'},
+  {id:'2f64f8d1',pattern:'KD APOTEK',subcatId:'food'},
+  {id:'d72a490e',pattern:'K*DOT APP',subcatId:'kollektivtrafik'},
+  {id:'f694eeb2',pattern:'K* KLARNA',subcatId:'shopping'},
+  {id:'c4995e83',pattern:'MATCHI AB',subcatId:'leisure'},
+  {id:'8c455047',pattern:'FJALLBUA',subcatId:'food'},
+  {id:'8d5ee7dd',pattern:'POSTNORD',subcatId:'paket-frakt'},
+  {id:'97ed6d40',pattern:'EASYPARK',subcatId:'parking'},
+  {id:'1400616e',pattern:'ROTUNDAN',subcatId:'resto'},
+  {id:'1eb13247',pattern:'LIFE 472',subcatId:'food'},
+  {id:'04d353c5',pattern:'SKATT',subcatId:'income'},
+  {id:'051bb20a',pattern:'TOMAL',subcatId:'income'},
+  {id:'d36b204d',pattern:'ACTIC',subcatId:'leisure'},
+  {id:'d390f8fb',pattern:'SNUS2',subcatId:'food'},
+];
+
 // ======= CSV-IMPORT: BUTIKSDATABAS & KATEGORISERINGSREGLER =======
 // Första träff vinner. Egna inlärda regler (customRules) kollas alltid först.
 const GROCERY = ['ICA MAXI','ICA KVANTUM','ICA SUPERMARKET','ICA NÄRA','ICA NARA','ICA TO GO','ICA','COOP','STORA COOP','COOP KONSUM','COOP XTRA','WILLYS','HEMKÖP','HEMKOP','LIDL','CITY GROSS','TEMPO','MATSMART'];
 const RESTAURANTS = ['MCDONALD','MCD','MAX HAMBURGER','BURGER KING','SIBYLLA','SUBWAY',"O'LEARYS",'OLEARYS','PRESSBYRÅN','PRESSBYRAN','7-ELEVEN','7ELEVEN','ESPRESSO HOUSE','WAYNES COFFEE','PIZZA HUT','KFC','TACO BAR','TACO BELL','STARBUCKS','FOODORA','UBER EATS','WOLT'];
-const GAS_STATIONS = ['PREEM','OKQ8','OK-Q8','CIRCLE K','ST1','INGO','QSTAR','Q-STAR','TANKA','DIN-X','DINX','SHELL','GULF','BILISTEN'];
+const GAS_STATIONS = ['PREEM','OKQ8','OK-Q8','CIRCLE K','ST1','INGO','QSTAR','Q-STAR','TANKA','DIN-X','DINX','SHELL','GULF','BILISTEN','LARBRO'];
 const TELECOM = ['TELIA','TELE2','TELENOR','COMVIQ','HALEBOP','HALLON','VIMLA','FELLO','CHILIMOBIL','BAHNHOF'];
 const STREAMING_SUBS = ['NETFLIX','HBO','VIAPLAY','DISNEY+','DISNEYPLUS','SKYSHOWTIME','C MORE','CMORE','TV4 PLAY','AMAZON PRIME','STORYTEL','SPOTIFY','APPLE.COM/BILL','PLAYSTATION','DAZN','AVANZA','NORDNET','MINDLER','KRY','DOKTOR.SE','OVERLEAF'];
 const INSURANCE = ['FOLKSAM','HEDVIG','IF FÖRSÄKRING','IF SKADEFÖRSÄKRING','TRYGG-HANSA','LÄNSFÖRSÄKRINGAR'];
@@ -567,8 +702,22 @@ function pruneTransactions(){
   Object.keys(transactions).forEach(k=>{if(k<ck)delete transactions[k]});
   saveTransactions();
 }
+const DEFAULT_RULES_SEEDED_KEY='default-rules-seeded-v1';
 function loadCustomRules(){
-  try{customRules=JSON.parse(localStorage.getItem(CUSTOM_RULES_KEY)||'[]')}catch(e){customRules=[]}
+  let stored;
+  try{stored=JSON.parse(localStorage.getItem(CUSTOM_RULES_KEY)||'[]')}catch(e){stored=[]}
+  // Slå ihop ML-genererade standardregler med det Oskar redan lärt appen manuellt —
+  // men BARA en gång (styrt av flaggan nedan). Görs det varje uppstart skulle en regel
+  // Oskar medvetet raderat i Inställningar återuppstå nästa gång appen laddas.
+  if(!localStorage.getItem(DEFAULT_RULES_SEEDED_KEY)){
+    const existingPatterns=new Set(stored.map(r=>r.pattern.toUpperCase()));
+    DEFAULT_CUSTOM_RULES.forEach(r=>{
+      if(!existingPatterns.has(r.pattern.toUpperCase())) stored.push(r);
+    });
+    localStorage.setItem(DEFAULT_RULES_SEEDED_KEY,'1');
+  }
+  customRules=stored;
+  saveCustomRules();
 }
 function saveCustomRules(){localStorage.setItem(CUSTOM_RULES_KEY,JSON.stringify(customRules))}
 
