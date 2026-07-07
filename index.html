@@ -1058,7 +1058,7 @@ function renderLogHeader(){
 // Full omritning av de tre panelerna runt currentLogMonth — körs när Logg-fliken
 // öppnas eller efter navigering (pil eller genomförd swipe).
 function renderLogg(){
-  if(!currentLogMonth)currentLogMonth=currentLogPeriodKey();
+  if(!currentLogMonth)currentLogMonth=ongoingLogPeriodKey();
   refreshLogVw();
   renderLogHeader();
   document.getElementById('log-pane-prev').innerHTML=buildLogPaneHTML(shiftMonthKey(currentLogMonth,-1));
