@@ -2,7 +2,7 @@
 <html lang="sv">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <title>Budget Pro</title>
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -18,7 +18,7 @@
       --red:#C0392B;--red-bg:#FDECEA;--accent:#4F46E5;--nav-h:60px;
       --safe-top:env(safe-area-inset-top,0px);--safe-bottom:env(safe-area-inset-bottom,0px);
     }
-    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);height:100dvh;overflow:hidden}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);height:100dvh;overflow:hidden;touch-action:manipulation}
 
     /* Pages */
     .page{display:none;position:absolute;inset:0;bottom:calc(var(--nav-h) + var(--safe-bottom));overflow-y:auto;-webkit-overflow-scrolling:touch}
@@ -177,8 +177,10 @@
     .ql-catbtn{display:flex;align-items:center;gap:.5rem;background:var(--bg);border-radius:12px;padding:.75rem 1rem;margin-bottom:.75rem;font-size:15px;font-weight:500;cursor:pointer;-webkit-tap-highlight-color:transparent}
     .ql-catbtn:active{opacity:.6}
     .ql-fields{display:flex;gap:.5rem;margin-bottom:1rem}
-    .ql-field{flex:1;background:var(--bg);border:none;border-radius:12px;padding:.7rem .9rem;font-size:14px;font-family:inherit;color:var(--text);outline:none;min-width:0}
-    .ql-select{width:100%;background:var(--bg);border:none;border-radius:12px;padding:.7rem .9rem;font-size:15px;font-family:inherit;color:var(--text);outline:none;-webkit-appearance:none}
+    /* OBS: minst 16px font-size på inputfält — under det auto-zoomar iOS in vid fokus
+       och lämnar användaren kvar inzoomad. Gäller ALLA framtida inputs också. */
+    .ql-field{flex:1;background:var(--bg);border:none;border-radius:12px;padding:.7rem .9rem;font-size:16px;font-family:inherit;color:var(--text);outline:none;min-width:0}
+    .ql-select{width:100%;background:var(--bg);border:none;border-radius:12px;padding:.7rem .9rem;font-size:16px;font-family:inherit;color:var(--text);outline:none;-webkit-appearance:none}
 
     /* CSV import */
     .import-btn{display:flex;align-items:center;justify-content:center;gap:.5rem;margin:0 1.25rem .75rem;padding:.75rem;background:var(--card);border:1.5px dashed var(--accent);border-radius:14px;color:var(--accent);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent}
@@ -790,7 +792,7 @@ let customRules=[];  // [{id,pattern,subcatId}]
 let importCtx=null;  // {period, items:[{id,dateISO,amount,rubrik,subcatId}], editingId}
 let learnCtx=null;   // {item, subcatId}
 let currentLogMonth=null;
-let analysView='detailed';
+let analysView='grouped'; // Samlad är förvald vy — Detaljerad nås via togglen
 let editingCatId=null;
 let numCtx=null;   // {key, scope:'budget'|'log'}
 let textCtx=null;  // {mode:'rename-cat'|'add-cat'|'add-subcat'|'edit-subcat', catId, subcatId, selectedType}
@@ -1793,8 +1795,8 @@ function renderAnalys(){
       <div class="a-sum-item"><div class="a-sum-label">Differens</div><div class="a-sum-val ${totalDiff<=0?'diff-ok':'diff-over'}">${totalDiff>=0?'+':''}${fmt(totalDiff)} kr</div></div>
     </div>
     <div class="analys-toggle-wrap">
-      <button class="toggle-btn ${analysView==='detailed'?'active':''}" onclick="setAnalysView('detailed')">Detaljerad</button>
       <button class="toggle-btn ${analysView==='grouped'?'active':''}" onclick="setAnalysView('grouped')">Samlad</button>
+      <button class="toggle-btn ${analysView==='detailed'?'active':''}" onclick="setAnalysView('detailed')">Detaljerad</button>
     </div>`;
 
   if(analysView==='detailed'){
@@ -2217,6 +2219,10 @@ document.getElementById('num-input').addEventListener('keydown',e=>{if(e.key==='
 document.getElementById('text-input').addEventListener('keydown',e=>{if(e.key==='Enter')saveTextModal()});
 
 // ======= BOOT =======
+// Blockera pinch-zoom (iOS-specifik gest-händelse) — viewport-metan täcker det mesta i
+// hemskärmsläge, men detta fångar resten. Auto-zoom vid inputfokus löses separat genom
+// att alla inputfält har minst 16px font-size (se .ql-field-kommentaren i CSS:en).
+document.addEventListener('gesturestart',e=>e.preventDefault());
 loadAll();
 loadTransactions();
 loadCustomRules();
