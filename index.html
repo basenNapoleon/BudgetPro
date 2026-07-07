@@ -156,7 +156,7 @@
     /* Kategorival och lär-regel kan öppnas OVANPÅ en redan öppen import/tx-lista-overlay —
        måste alltid rendera högst upp oavsett DOM-ordning, annars fångar den undre overlayn
        (samma z-index, senare i DOM) alla klick och kategorivalet verkar inte gå att trycka på. */
-    #import-cat-overlay,#learn-overlay{z-index:110}
+    #import-cat-overlay,#learn-overlay,#quickcat-overlay{z-index:110}
     .modal{background:var(--card);border-radius:20px 20px 0 0;padding:1.25rem 1.5rem calc(1.5rem + var(--safe-bottom));width:100%;transform:translateY(100%);transition:transform .25s cubic-bezier(.32,.72,0,1)}
     .overlay.open .modal{transform:translateY(0)}
     .modal-handle{width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 1rem}
@@ -170,6 +170,15 @@
     .cancel-btn:active{opacity:.7}
     .delete-warning{font-size:14px;color:var(--text2);text-align:center;margin-bottom:1rem;line-height:1.5;padding:0 .5rem}
     .num-imported-note{font-size:12px;color:var(--text2);text-align:center;margin:-.4rem 0 .85rem}
+
+    /* Manuell loggning (FAB + "Nytt köp"-modal) */
+    .fab{position:fixed;right:1.1rem;bottom:calc(var(--nav-h) + var(--safe-bottom) + 1.1rem);width:54px;height:54px;border-radius:50%;background:var(--accent);color:#fff;border:none;font-size:30px;font-weight:300;line-height:1;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(79,70,229,.4);cursor:pointer;z-index:15;-webkit-tap-highlight-color:transparent;font-family:inherit}
+    .fab:active{transform:scale(.94)}
+    .ql-catbtn{display:flex;align-items:center;gap:.5rem;background:var(--bg);border-radius:12px;padding:.75rem 1rem;margin-bottom:.75rem;font-size:15px;font-weight:500;cursor:pointer;-webkit-tap-highlight-color:transparent}
+    .ql-catbtn:active{opacity:.6}
+    .ql-fields{display:flex;gap:.5rem;margin-bottom:1rem}
+    .ql-field{flex:1;background:var(--bg);border:none;border-radius:12px;padding:.7rem .9rem;font-size:14px;font-family:inherit;color:var(--text);outline:none;min-width:0}
+    .ql-select{width:100%;background:var(--bg);border:none;border-radius:12px;padding:.7rem .9rem;font-size:15px;font-family:inherit;color:var(--text);outline:none;-webkit-appearance:none}
 
     /* CSV import */
     .import-btn{display:flex;align-items:center;justify-content:center;gap:.5rem;margin:0 1.25rem .75rem;padding:.75rem;background:var(--card);border:1.5px dashed var(--accent);border-radius:14px;color:var(--accent);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent}
@@ -268,6 +277,7 @@
     <div class="sum-item"><div class="sum-item-label">Budget</div><div class="sum-item-val" id="log-budget-total">0 kr</div></div>
     <div class="sum-item"><div class="sum-item-label">Differens</div><div class="sum-item-val" id="log-diff">0 kr</div></div>
   </div>
+  <div id="log-income-row" style="margin:-.35rem 1.25rem .6rem;text-align:center;font-size:12px;color:var(--text2);cursor:pointer;-webkit-tap-highlight-color:transparent" onclick="openLogIncome()"></div>
   <div id="log-unknown-link" style="display:none;margin:-.4rem 1.25rem .75rem;text-align:center;font-size:13px;color:var(--accent);cursor:pointer" onclick="openTxList(currentLogMonth,null,'Okategoriserat')">Visa okategoriserade transaktioner (<span id="log-unknown-count">0</span>)</div>
   <div class="log-viewport" id="log-viewport">
     <div class="log-track" id="log-track">
@@ -276,6 +286,7 @@
       <div class="log-pane" id="log-pane-next"></div>
     </div>
   </div>
+  <button class="fab" onclick="openQuickLog()" title="Logga nytt köp">+</button>
 </div>
 
 <!-- ===== ANALYS ===== -->
@@ -454,6 +465,45 @@
   </div>
 </div>
 
+<!-- MODAL: bankval inför CSV-import -->
+<div class="overlay" id="bank-overlay" onclick="closeBankOverlay(event)">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Vilken bank kommer filen från?</div>
+    <button class="modal-btn" style="margin-bottom:.5rem" onclick="chooseImportBank('nordea')">Nordea</button>
+    <button class="modal-btn" onclick="chooseImportBank('swedbank')">Sparbanken / Swedbank</button>
+    <button class="cancel-btn" onclick="closeOverlay('bank-overlay')">Avbryt</button>
+  </div>
+</div>
+
+<!-- MODAL: logga nytt köp manuellt -->
+<div class="overlay" id="quicklog-overlay" onclick="closeQuickLogOverlay(event)">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Nytt köp</div>
+    <div class="modal-input-wrap">
+      <input class="modal-input" id="ql-amount" type="number" inputmode="decimal" step="0.01" placeholder="0">
+      <span class="modal-currency">kr</span>
+    </div>
+    <div class="ql-catbtn" onclick="openQuickCatPicker()"><span id="ql-cat-label">Välj kategori ›</span></div>
+    <div class="ql-fields">
+      <input class="ql-field" id="ql-note" type="text" placeholder="Notering (valfritt)">
+      <input class="ql-field" id="ql-date" type="date">
+    </div>
+    <button class="modal-btn" onclick="saveQuickLog()">Logga köp</button>
+  </div>
+</div>
+
+<!-- MODAL: kategoriväljare för manuellt köp — kan även skapa ny underkategori direkt -->
+<div class="overlay" id="quickcat-overlay" onclick="closeQuickCatOverlay(event)">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Välj kategori</div>
+    <div class="import-cat-list" id="quickcat-list"></div>
+    <button class="cancel-btn" onclick="closeOverlay('quickcat-overlay')">Avbryt</button>
+  </div>
+</div>
+
 <script>
 // ======= CONSTANTS =======
 const PALETTE = ['#6C63D4','#C0506A','#1D9968','#D05A2A','#7A7870','#3070C4','#4A8C1A','#9B59B6','#E67E22','#1ABC9C','#E74C3C','#3498DB','#F39C12','#16A085'];
@@ -461,7 +511,7 @@ const MONTHS_FULL  = ['Januari','Februari','Mars','April','Maj','Juni','Juli','A
 const MONTHS_SHORT = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
 const CATS_KEY = 'cats-v2', BUDGET_KEY = 'budget-v1', LOG_KEY = 'log-v1';
 const TRANSACTIONS_KEY = 'transactions-v1', CUSTOM_RULES_KEY = 'custom-rules-v1';
-const TX_RETENTION_MONTHS = 4; // hur länge enskilda transaktionsrader sparas (dedup-fönster) — aggregerade loggsummor styrs separat av pruneLog()
+const TX_RETENTION_MONTHS = 12; // höjd från 4: sedan manuell loggning infördes ÄR transaktionsraderna själva historiken (manuella köp + CSV-import räknas ihop till Utfall/Analys direkt från listan). Med 4 mån skulle underlaget för Analys-graferna raderas i förtid. Samma fönster som pruneLog().
 
 const DEFAULT_CATS = [
   {id:'boende',   label:'Boende & fasta utgifter', color:'#6C63D4',subcats:[
@@ -655,15 +705,17 @@ const RESTAURANTS = ['MCDONALD','MCD','MAX HAMBURGER','BURGER KING','SIBYLLA','S
 const GAS_STATIONS = ['PREEM','OKQ8','OK-Q8','CIRCLE K','ST1','INGO','QSTAR','Q-STAR','TANKA','DIN-X','DINX','SHELL','GULF','BILISTEN','LARBRO'];
 const TELECOM = ['TELIA','TELE2','TELENOR','COMVIQ','HALEBOP','HALLON','VIMLA','FELLO','CHILIMOBIL','BAHNHOF'];
 const STREAMING_SUBS = ['NETFLIX','HBO','VIAPLAY','DISNEY+','DISNEYPLUS','SKYSHOWTIME','C MORE','CMORE','TV4 PLAY','AMAZON PRIME','STORYTEL','SPOTIFY','APPLE.COM/BILL','PLAYSTATION','DAZN','AVANZA','NORDNET','MINDLER','KRY','DOKTOR.SE','OVERLEAF'];
-const INSURANCE = ['FOLKSAM','HEDVIG','IF FÖRSÄKRING','IF SKADEFÖRSÄKRING','TRYGG-HANSA','LÄNSFÖRSÄKRINGAR'];
+const INSURANCE = ['FOLKSAM','HEDVIG','IF FÖRSÄKRING','IF SKADEFÖRSÄKRING','TRYGG-HANSA','TRYGG HANSA','LÄNSFÖRSÄKRINGAR'];
 const SHOPPING_MERCHANTS = ['JULA','BILTEMA','ELGIGANTEN','MEDIA MARKT','MEDIAMARKT','NETONNET','WEBHALLEN','KJELL & COMPANY','KJELL','CLAS OHLSON','TRADERA','SELLPY','IKEA','H&M','LINDEX','KAPPAHL','STADIUM','INTERSPORT','ÅHLÉNS','AHLENS','ZARA','GINA TRICOT'];
 const LEISURE_MERCHANTS = ['SYSTEMBOLAGET','TICKETMASTER','FILMSTADEN','SF BIO','EVENTIM'];
 
-// Nordea-prefix som förekommer före det faktiska butiksnamnet
-const NORDEA_PREFIXES = ['Kortköp', 'Autogiro', 'Swish betalning', 'Swish inbetalning', 'Bankgiro', 'Plusgiro', 'Överföring', 'Uttag', 'Insättning', 'Direktbetalning'];
+// Bank-prefix som förekommer före det faktiska butiksnamnet (Nordea resp. Sparbanken/Swedbank).
+// OBS: ordningen spelar roll — de längre/mer specifika Swish-varianterna måste ligga före
+// "Swish" ensamt, eftersom loopen tar första träffen.
+const BANK_PREFIXES = ['Kortköp', 'Autogiro', 'Swish betalning', 'Swish inbetalning', 'Swish mottagen', 'Swish retur', 'Swish', 'Bankgiro', 'Plusgiro', 'Överföring via internet', 'Överföring', 'Uttag', 'Insättning', 'Direktbetalning'];
 
-function stripNordeaPrefix(rubrik){
-  for(const p of NORDEA_PREFIXES){
+function stripBankPrefix(rubrik){
+  for(const p of BANK_PREFIXES){
     if(rubrik.toUpperCase().startsWith(p.toUpperCase())){
       const rest = rubrik.slice(p.length).trim();
       return rest || rubrik; // returnera original om inget butiksnamn finns kvar
@@ -691,7 +743,13 @@ function categorizeRaw(rubrik, amount){
   if(includesAny(upper, LEISURE_MERCHANTS)) return 'leisure';
   if(upper.startsWith('HYRA')) return 'rent';
   if(upper.includes('VARDAGSPAKET') || upper.includes('BANKAVGIFT')) return 'bankfee';
+  // Swish: Nordea skriver "Swish betalning/inbetalning NAMN", Swedbank skriver bara
+  // "Swish NAMN" (utgående), "Swish mottagen +46..." (inkommande) och "Swish retur X"
+  // (återbetalning av ett tidigare köp — okänd ursprungskategori, måste kollas manuellt).
   if(/^SWISH (BETALNING|INBETALNING)/.test(upper)) return 'swish';
+  if(/^SWISH MOTTAGEN/.test(upper)) return 'income';
+  if(/^SWISH RETUR/.test(upper)) return null;
+  if(/^SWISH /.test(upper)) return 'swish';
   if(upper==='LÖN' || /ARVODE/.test(upper)) return 'income';
   return null;
 }
@@ -788,6 +846,20 @@ function currentLogPeriodKey(){
   while(!periodComplete(k)&&guard<3){k=shiftMonthKey(k,-1);guard++;}
   return k;
 }
+function todayISO(){const d=new Date();return toKey(d)+'-'+String(d.getDate()).padStart(2,'0')}
+// Vilken 25–25-period ett givet datum tillhör: dag 26+ hör till NÄSTA månads period.
+function periodKeyFromISO(dateISO){
+  const d=new Date(dateISO+'T12:00:00');
+  let k=toKey(d);
+  if(d.getDate()>25)k=shiftMonthKey(k,1);
+  return k;
+}
+// Perioden som PÅGÅR just nu — dvs den ett köp med dagens datum hamnar i. Skiljer sig från
+// currentLogPeriodKey() (senast AVSLUTADE perioden). Sedan manuell loggning infördes är den
+// pågående perioden navigeringsgränsen framåt i Logg: man måste kunna se köp man just lagt in.
+// Analys påverkas inte — den filtrerar fortfarande på periodComplete(), så pågående period
+// räknas aldrig med i snitt/trend förrän den avslutats den 25:e.
+function ongoingLogPeriodKey(){return periodKeyFromISO(todayISO())}
 function keyLabel(k){const[y,m]=k.split('-');return MONTHS_FULL[+m-1]+' '+y}
 function periodLabel(k){const[,m]=k.split('-').map(Number);return`25 ${MONTHS_SHORT[(m-2+12)%12]} – 25 ${MONTHS_SHORT[m-1]}`}
 function fmt(n){return Math.round(n||0).toLocaleString('sv-SE')}
@@ -801,6 +873,15 @@ function getCat(catId){return cats.find(c=>c.id===catId)}
 function availableForVariable(){
   const fixedTotal=cats.flatMap(c=>c.subcats).filter(s=>s.type==='fixed').reduce((s,sc)=>s+(budget[sc.id]||0),0);
   return (budget.income||0)-fixedTotal;
+}
+// Som availableForVariable(), men med periodens faktiska lön (log[key].income) om den loggats —
+// för den som har olika lön olika månader. Nyckeln 'income' krockar inte med subcat-id:n
+// (samma specialnyckel som redan används i budget-objektet).
+function periodVariableBudget(key){
+  const inc=log[key]?.income;
+  if(inc==null) return availableForVariable();
+  const fixedTotal=cats.flatMap(c=>c.subcats).filter(s=>s.type==='fixed').reduce((s,sc)=>s+(budget[sc.id]||0),0);
+  return inc-fixedTotal;
 }
 function getSubcat(catId,subcatId){return getCat(catId)?.subcats.find(s=>s.id===subcatId)}
 function typeLabel(t){return t==='fixed'?'Fast':t==='variable'?'Variabel':'Enbart logg'}
@@ -899,7 +980,7 @@ function buildLogPaneHTML(key){
       const imported=getImportedSum(key,sc.id);
       const total=manual+imported;
       const notes=[bv!==null?`budget: ${fmt(bv)} kr`:'ingen budget'];
-      if(imported)notes.push(`varav importerat: ${fmt(imported)} kr`);
+      if(imported)notes.push(`varav enskilda köp: ${fmt(imported)} kr`);
       // Om det finns importerade poster går noten att trycka på för att se/kategorisera om dem.
       const notesHTML=imported
         ? `<small class="editable" onclick="openTxList('${key}','${sc.id}','${escapeHtml(sc.label)}')">${notes.join(' · ')} ›</small>`
@@ -922,17 +1003,24 @@ function buildLogPaneHTML(key){
 function renderLogHeader(){
   const entry=log[currentLogMonth]||{};
   const isLogged=isPeriodLogged(currentLogMonth);
-  const isCurrent=currentLogMonth===currentLogPeriodKey();
+  const isOngoing=!periodComplete(currentLogMonth);
+  const atNavEnd=currentLogMonth===ongoingLogPeriodKey();
   const logSubs=getLogSubcats();
-  const logBudgetTotal=availableForVariable();
+  const logBudgetTotal=periodVariableBudget(currentLogMonth);
   const logTotal=logSubs.reduce((s,c)=>s+(entry[c.id]||0)+getImportedSum(currentLogMonth,c.id),0);
   const diff=logTotal-logBudgetTotal;
 
   document.getElementById('log-month-label').textContent=keyLabel(currentLogMonth);
   document.getElementById('log-period-sub').textContent=periodLabel(currentLogMonth);
-  document.getElementById('log-badge').textContent=isLogged?'✓ Sparad':'Inte loggad ännu';
-  document.getElementById('log-badge').className='month-badge '+(isLogged?'badge-ok':'badge-missing');
-  document.getElementById('log-next-btn').style.opacity=isCurrent?'0.25':'1';
+  document.getElementById('log-badge').textContent=isOngoing?'Pågående period':(isLogged?'✓ Sparad':'Inte loggad ännu');
+  document.getElementById('log-badge').className='month-badge '+(!isOngoing&&isLogged?'badge-ok':'badge-missing');
+  document.getElementById('log-next-btn').style.opacity=atNavEnd?'0.25':'1';
+
+  // Periodens lön — visar loggat värde om det finns, annars standardlönen från Budget-fliken.
+  const incLogged=log[currentLogMonth]?.income;
+  document.getElementById('log-income-row').innerHTML= incLogged!=null
+    ? `Lön denna period: <strong>${fmt(incLogged)} kr</strong> ✎`
+    : `Lön denna period: ${fmt(budget.income)} kr <span style="opacity:.7">(standard)</span> ✎`;
   document.getElementById('log-total').textContent=fmt(logTotal)+' kr';
   document.getElementById('log-budget-total').textContent=fmt(logBudgetTotal)+' kr';
   const dEl=document.getElementById('log-diff');
@@ -957,13 +1045,15 @@ function renderLogg(){
   renderLogHeader();
   document.getElementById('log-pane-prev').innerHTML=buildLogPaneHTML(shiftMonthKey(currentLogMonth,-1));
   document.getElementById('log-pane-cur').innerHTML=buildLogPaneHTML(currentLogMonth);
-  document.getElementById('log-pane-next').innerHTML=currentLogMonth===currentLogPeriodKey()?'':buildLogPaneHTML(shiftMonthKey(currentLogMonth,1));
+  document.getElementById('log-pane-next').innerHTML=currentLogMonth===ongoingLogPeriodKey()?'':buildLogPaneHTML(shiftMonthKey(currentLogMonth,1));
   logSetTransform(0,false);
 }
 
 function changeLogMonth(delta){
   const nk=shiftMonthKey(currentLogMonth,delta);
-  if(nk>currentLogPeriodKey())return;
+  // Navigeringsgräns framåt: den PÅGÅENDE perioden (inte längre den senast avslutade) —
+  // manuellt loggade köp hamnar där och måste gå att se direkt.
+  if(nk>ongoingLogPeriodKey())return;
   currentLogMonth=nk;renderLogg();
 }
 
@@ -996,8 +1086,8 @@ function logOnMove(x,y){
   }
   if(logLockedAxis==='x'){
     let proposed=ddx;
-    // Kan aldrig swipa förbi nuvarande loggbara period framåt. Ingen spärr bakåt (obegränsad historik).
-    if(currentLogMonth===currentLogPeriodKey()) proposed=Math.max(proposed,0);
+    // Kan aldrig swipa förbi den pågående perioden framåt. Ingen spärr bakåt (obegränsad historik).
+    if(currentLogMonth===ongoingLogPeriodKey()) proposed=Math.max(proposed,0);
     logDx=proposed;
     logSetTransform(logDx,false);
   }
@@ -1070,6 +1160,36 @@ function parseCSV(text){
   });
   return {rows:out, skipped};
 }
+// Sparbanken/Swedbank-export: Windows-1252 (INTE UTF-8!), komma som separator med
+// citattecken runt textfält, decimalPUNKT i belopp. Rad 1 är en metadatarad
+// ("* Transaktioner Period ... Skapad ..."), rad 2 är kolumnrubrikerna:
+// Radnummer,Clearingnr,Kontonr,Produkt,Valuta,Bokföringsdag,Transaktionsdag,Valutadag,Referens,Beskrivning,Belopp,Bokfört saldo
+function parseCSVSwedbank(text){
+  const lines=text.split(/\r\n|\n|\r/).filter(l=>l.trim().length);
+  let headerIdx=0;
+  while(headerIdx<lines.length && lines[headerIdx].trim().startsWith('*')) headerIdx++;
+  if(lines.length<headerIdx+2) return {rows:[], skipped:0};
+  const out=[];
+  let skipped=0;
+  lines.slice(headerIdx+1).forEach(line=>{
+    const cols=splitCsvLine(line, ',');
+    if(cols.length<11){skipped++;return;}
+    // Transaktionsdag (kol 6) = faktiskt köpdatum. Bokföringsdag (kol 5) kan ligga flera
+    // dagar senare och skulle placera köp nära den 25:e i FEL 25–25-period — använd den
+    // bara som fallback om Transaktionsdag saknas.
+    const dateRaw=(cols[6]||'').trim() || (cols[5]||'').trim();
+    const dateParts=dateRaw.split(/[\/\-]/).map(Number);
+    if(dateParts.length!==3||dateParts.some(isNaN)){skipped++;return;}
+    const [y,m,d]=dateParts;
+    const dateISO=y+'-'+String(m).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+    const amount=parseAmount(cols[10]||'0');
+    if(isNaN(amount)){skipped++;return;}
+    const rubrik=(cols[9]||'').trim() || (cols[8]||'').trim();
+    if(!rubrik){skipped++;return;}
+    out.push({dateISO, amount, rubrik});
+  });
+  return {rows:out, skipped};
+}
 // Period = 25:e föregående månad (exkl.) t.o.m. 25:e denna månad (inkl.)
 function periodRange(key){
   const [y,m]=key.split('-').map(Number);
@@ -1084,9 +1204,19 @@ function isInPeriod(dateISO, key){
 }
 function txKey(t){ return t.dateISO+'|'+t.amount+'|'+t.rubrik; }
 
+let pendingImportBank='nordea'; // sätts av bankvalet innan filväljaren öppnas
 function openImportPicker(){
-  document.getElementById('csv-file-input').value='';
-  document.getElementById('csv-file-input').click();
+  openOverlay('bank-overlay');
+}
+function closeBankOverlay(e){
+  if(!e||e.target===document.getElementById('bank-overlay')) closeOverlay('bank-overlay');
+}
+function chooseImportBank(bank){
+  pendingImportBank=bank;
+  closeOverlay('bank-overlay');
+  const inp=document.getElementById('csv-file-input');
+  inp.value='';
+  inp.click();
 }
 
 function handleImportFile(e){
@@ -1094,9 +1224,23 @@ function handleImportFile(e){
   if(!file)return;
   const reader=new FileReader();
   reader.onload=function(ev){
+    const text=ev.target.result;
+    // Fel bank vald? Formaten är strukturellt olika nog att kollas: Swedbank börjar med en
+    // "* Transaktioner"-metadatarad, Nordea har semikolon i rubrikraden. Avbryt hellre med
+    // tydligt besked än att parsa fel format och spara skräpdata.
+    const looksSwedbank=text.trimStart().startsWith('* Transaktioner');
+    const looksNordea=(text.split(/\r\n|\n|\r/)[0]||'').includes(';');
+    if(pendingImportBank==='nordea' && looksSwedbank){
+      alert('Filen ser ut att komma från Sparbanken/Swedbank, inte Nordea. Välj rätt bank och försök igen.');
+      return;
+    }
+    if(pendingImportBank==='swedbank' && !looksSwedbank && looksNordea){
+      alert('Filen ser ut att komma från Nordea, inte Sparbanken/Swedbank. Välj rätt bank och försök igen.');
+      return;
+    }
     let parsed;
-    try{ parsed=parseCSV(ev.target.result); }
-    catch(err){ alert('Kunde inte läsa filen. Kontrollera att det är en CSV-export från Nordea.'); return; }
+    try{ parsed=pendingImportBank==='swedbank'?parseCSVSwedbank(text):parseCSV(text); }
+    catch(err){ alert('Kunde inte läsa filen. Kontrollera att det är en CSV-export från din bank.'); return; }
     const rows=parsed.rows;
     if(!rows.length){
       alert(parsed.skipped
@@ -1138,7 +1282,9 @@ function handleImportFile(e){
     renderImportReview();
     openOverlay('import-overlay');
   };
-  reader.readAsText(file,'UTF-8');
+  // Swedbank exporterar i Windows-1252 — läses filen som UTF-8 blir alla åäö trasiga
+  // (och tvärtom skadar inte 1252-läsning strukturkollen ovan, som är ASCII-baserad).
+  reader.readAsText(file, pendingImportBank==='swedbank'?'windows-1252':'UTF-8');
 }
 
 function escapeHtml(s){
@@ -1256,7 +1402,8 @@ function closeImportCatOverlay(e){
 // regel utifrån dem (t.ex. "ÖHMAN,KAJSA" -> Restaurang) skulle felaktigt slå till varje
 // gång just den personen swishar dig, oavsett vad det gäller nästa gång. Erbjud därför
 // aldrig "Kom ihåg butiken?" när man kategoriserar om en Swish-transaktion.
-function isSwishRubrik(rubrik){ return /^SWISH (BETALNING|INBETALNING)/i.test((rubrik||'').trim()); }
+// Matchar både Nordeas "Swish betalning/inbetalning ..." och Swedbanks "Swish NAMN".
+function isSwishRubrik(rubrik){ return /^SWISH\b/i.test((rubrik||'').trim()); }
 
 function selectImportCat(subcatId){
   if(!importCtx||!importCtx.editingId)return;
@@ -1299,6 +1446,7 @@ function renderTxList(){
       </div>
       <div class="import-row-amount">${fmt(-t.amount)} kr</div>
       <span class="import-row-cat" onclick="openTxCatPicker('${period}','${t.id}')">Flytta</span>
+      ${t.manual?`<button class="row-btn danger" onclick="deleteManualTx('${period}','${t.id}')">✕</button>`:''}
     </div>
   `).join('');
 }
@@ -1322,11 +1470,127 @@ function selectTxCat(subcatId){
   if(subcatId && subcatId!==prev && !isSwishRubrik(tx.rubrik)) openLearnRule(tx, subcatId);
 }
 
+// ======= MANUELL LOGGNING AV ENSKILDA KÖP (plusknappen) =======
+// Manuella köp lagras i SAMMA transactions-store som CSV-importen (flaggade med manual:true),
+// så summering, tx-listan och Analys fungerar identiskt för båda. Dedup vid import påverkas
+// inte: manuella rubriker (noteringar) kolliderar inte med bankernas rubriker.
+let quickLogCtx=null; // {subcatId}
+let qlNewType='variable';
+
+function openQuickLog(){
+  quickLogCtx={subcatId:null};
+  document.getElementById('ql-amount').value='';
+  document.getElementById('ql-note').value='';
+  const di=document.getElementById('ql-date');
+  di.value=todayISO();
+  di.max=todayISO(); // inga framtida köp
+  document.getElementById('ql-cat-label').innerHTML='Välj kategori ›';
+  openOverlay('quicklog-overlay');
+  setTimeout(()=>document.getElementById('ql-amount').focus(),300);
+}
+function closeQuickLogOverlay(e){
+  if(!e||e.target===document.getElementById('quicklog-overlay')){closeOverlay('quicklog-overlay');quickLogCtx=null;}
+}
+function openQuickCatPicker(){
+  renderQuickCatList();
+  openOverlay('quickcat-overlay');
+}
+function closeQuickCatOverlay(e){
+  if(!e||e.target===document.getElementById('quickcat-overlay'))closeOverlay('quickcat-overlay');
+}
+function renderQuickCatList(){
+  // Bara icke-fasta underkategorier — fasta visas inte i Logg-fliken, så ett manuellt köp
+  // dit skulle bli osynligt. (Fasta hanteras via Budget, inte köp för köp.)
+  let html='';
+  cats.forEach(cat=>{
+    const sub=cat.subcats.filter(s=>s.type!=='fixed');
+    if(!sub.length)return;
+    html+=`<div class="import-cat-group-label">${cat.label}</div>`;
+    sub.forEach(sc=>{
+      html+=`<div class="import-cat-option" onclick="selectQuickCat('${sc.id}')"><span class="row-dot" style="background:${cat.color}"></span>${sc.label}</div>`;
+    });
+  });
+  html+=`<div class="add-row" onclick="renderQuickCatCreate()" style="padding:.8rem 0"><span>+</span> Ny underkategori</div>`;
+  document.getElementById('quickcat-list').innerHTML=html;
+}
+// Skapa ny underkategori direkt från köp-flödet — det är ju när man loggar man upptäcker
+// att en kategori saknas. Typ begränsas till Variabel/Enbart logg (en fast skulle inte
+// synas i Logg och köpet skulle "försvinna").
+function renderQuickCatCreate(){
+  qlNewType='variable';
+  const opts=cats.map(c=>`<option value="${c.id}">${c.label}</option>`).join('');
+  document.getElementById('quickcat-list').innerHTML=`
+    <div class="modal-input-wrap" style="margin-bottom:.6rem"><input class="text-input" id="qlnew-name" type="text" placeholder="Namn på underkategori..." style="font-size:18px"></div>
+    <select id="qlnew-parent" class="ql-select">${opts}</select>
+    <div class="type-row" style="margin-top:.6rem">
+      <button class="type-btn qlt sel" onclick="selQlType('variable',event)">Variabel</button>
+      <button class="type-btn qlt" onclick="selQlType('log-only',event)">Enbart logg</button>
+    </div>
+    <button class="modal-btn" onclick="saveQuickNewCat()">Skapa & välj</button>
+    <div class="add-row" onclick="renderQuickCatList()" style="padding:.8rem 0">‹ Tillbaka till listan</div>`;
+  setTimeout(()=>document.getElementById('qlnew-name').focus(),100);
+}
+function selQlType(t,e){
+  qlNewType=t;
+  document.querySelectorAll('.qlt').forEach(b=>b.classList.remove('sel'));
+  e.target.classList.add('sel');
+}
+function saveQuickNewCat(){
+  const name=document.getElementById('qlnew-name').value.trim();
+  if(!name)return;
+  const parent=getCat(document.getElementById('qlnew-parent').value);
+  if(!parent)return;
+  const newId=uid();
+  parent.subcats.push({id:newId,label:name,note:null,type:qlNewType});
+  saveCats();
+  selectQuickCat(newId);
+}
+function selectQuickCat(id){
+  if(!quickLogCtx)return;
+  quickLogCtx.subcatId=id;
+  const meta=subcatMeta(id);
+  document.getElementById('ql-cat-label').innerHTML=meta
+    ? `<span class="row-dot" style="background:${meta.catColor};display:inline-block"></span>&nbsp;${meta.label}`
+    : 'Välj kategori ›';
+  closeOverlay('quickcat-overlay');
+}
+function saveQuickLog(){
+  if(!quickLogCtx)return;
+  const amount=parseAmount(document.getElementById('ql-amount').value||'');
+  if(isNaN(amount)||amount<=0){alert('Ange ett belopp större än 0.');return;}
+  if(!quickLogCtx.subcatId){alert('Välj en kategori först.');return;}
+  let dateISO=document.getElementById('ql-date').value||todayISO();
+  if(dateISO>todayISO())dateISO=todayISO();
+  const note=document.getElementById('ql-note').value.trim();
+  // Perioden bestäms av köpets DATUM enligt 25–25-logiken — ett köp den 26 juni hamnar
+  // alltså automatiskt i juli-perioden, oavsett vilken period man råkar stå på i Logg.
+  const period=periodKeyFromISO(dateISO);
+  const tx={id:uid(), dateISO, amount:-Math.abs(amount), rubrik:note||'Manuellt köp', subcatId:quickLogCtx.subcatId, manual:true};
+  if(!transactions[period])transactions[period]=[];
+  transactions[period].push(tx);
+  saveTransactions();
+  closeOverlay('quicklog-overlay');
+  quickLogCtx=null;
+  currentLogMonth=period; // hoppa till perioden köpet hamnade i så det syns direkt
+  renderLogg();
+}
+function deleteManualTx(period,txId){
+  transactions[period]=(transactions[period]||[]).filter(t=>t.id!==txId);
+  if(!transactions[period].length)delete transactions[period];
+  saveTransactions();
+  renderTxList();
+  renderLogg();
+}
+// Lön för just denna period (för den som har olika lön olika månader).
+function openLogIncome(){
+  openNumModal('income','Lön denna period','log');
+}
+
 function openLearnRule(item, subcatId){
   learnCtx={item,subcatId};
-  // Strippa Nordea-prefix (t.ex. "Kortköp", "Autogiro") så mönstret
+  // Strippa bank-prefix (t.ex. "Kortköp", "Autogiro", "Swish") så mönstret
   // baseras på butiksnamnet, inte transaktionstypen
-  let stripped=stripNordeaPrefix(item.rubrik).trim();
+  let stripped=stripBankPrefix(item.rubrik).trim();
   // Ta bort ett eventuellt INLEDANDE sifferblock (transaktions-/datumnummer FÖRE butiksnamnet,
   // t.ex. "260305 RUTERAPPEN") — annars hamnar numret kvar i mönstret och regeln matchar
   // aldrig igen, eftersom det numret är unikt per transaktion.
@@ -1759,7 +2023,10 @@ function executeDelete(){
       renderCatEditor();
     }
   }else if(delCtx.type==='import-period'){
-    delete transactions[delCtx.period];
+    // Behåll manuellt loggade köp — bara importerade rader rensas.
+    const kept=(transactions[delCtx.period]||[]).filter(t=>t.manual);
+    if(kept.length)transactions[delCtx.period]=kept;
+    else delete transactions[delCtx.period];
     saveTransactions();
     renderLogg();
   }
@@ -1770,11 +2037,13 @@ function executeDelete(){
 // inmatade belopp påverkas inte) — så man kan köra CSV-importen igen från noll.
 function confirmDeleteImport(){
   const period=currentLogMonth;
-  const count=(transactions[period]||[]).length;
+  // Räkna/radera BARA importerade rader — manuellt loggade köp (manual:true) ligger i samma
+  // store och skulle annars försvinna med när man rensar för att köra om en import.
+  const count=(transactions[period]||[]).filter(t=>!t.manual).length;
   if(!count){ alert('Inga importerade transaktioner för denna period.'); return; }
   delCtx={type:'import-period', period};
   document.getElementById('del-title').textContent=`Radera import för ${keyLabel(period)}?`;
-  document.getElementById('del-warning').textContent=`${count} importerad${count!==1?'e':''} transaktion${count!==1?'er':''} tas bort. Manuellt inmatade belopp påverkas inte. Du kan importera CSV:n igen direkt efteråt.`;
+  document.getElementById('del-warning').textContent=`${count} importerad${count!==1?'e':''} transaktion${count!==1?'er':''} tas bort. Manuellt loggade köp och manuellt inmatade belopp påverkas inte. Du kan importera CSV:n igen direkt efteråt.`;
   openOverlay('del-overlay');
 }
 
@@ -1788,11 +2057,17 @@ function openNumModal(key,label,scope='budget',logMonth=null){
   numCtx={key,scope,logMonth:logMonth||currentLogMonth};
   document.getElementById('num-title').textContent=label;
   const noteEl=document.getElementById('num-imported-note');
-  if(scope==='log'){
+  if(scope==='log'&&key==='income'){
+    // Periodens lön är ingen underkategori — visa inte tx-summan för 'income'-kategoriserade
+    // rader här (den skulle blanda lön med Swish mottagen, skatteåterbäring m.m.).
+    noteEl.textContent='Gäller bara denna period. 0 återställer till standardlönen från Budget-fliken.';
+    noteEl.style.display='block';
+    document.getElementById('num-input').value=log[numCtx.logMonth]?.income||'';
+  }else if(scope==='log'){
     const manual=log[numCtx.logMonth]?.[key]||0;
     const imported=getImportedSum(numCtx.logMonth,key);
     if(imported){
-      noteEl.textContent=`Importerat: ${fmt(imported)} kr · fältet nedan är manuellt tillägg`;
+      noteEl.textContent=`Enskilda köp/import: ${fmt(imported)} kr · fältet nedan är manuellt tillägg utöver dessa`;
       noteEl.style.display='block';
     }else{
       noteEl.style.display='none';
@@ -1814,7 +2089,14 @@ function saveNumModal(){
   else{
     const mk=numCtx.logMonth||currentLogMonth;
     if(!log[mk])log[mk]={};
-    log[mk][numCtx.key]=val;saveLog();renderLogg();
+    if(numCtx.key==='income'&&!val){
+      // 0/tomt = ta bort periodlönen och återgå till standardlönen från Budget-fliken
+      delete log[mk].income;
+      if(!Object.keys(log[mk]).length)delete log[mk];
+    }else{
+      log[mk][numCtx.key]=val;
+    }
+    saveLog();renderLogg();
   }
   closeOverlay('num-overlay');numCtx=null;
 }
