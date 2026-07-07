@@ -278,6 +278,7 @@
     <div class="sum-item"><div class="sum-item-label">Differens</div><div class="sum-item-val" id="log-diff">0 kr</div></div>
   </div>
   <div id="log-income-row" style="margin:-.35rem 1.25rem .6rem;text-align:center;font-size:12px;color:var(--text2);cursor:pointer;-webkit-tap-highlight-color:transparent" onclick="openLogIncome()"></div>
+  <div style="margin:-.25rem 1.25rem .6rem;text-align:center;font-size:13px;color:var(--accent);cursor:pointer;-webkit-tap-highlight-color:transparent" onclick="openDonut()">Fördelning av lönen ›</div>
   <div id="log-unknown-link" style="display:none;margin:-.4rem 1.25rem .75rem;text-align:center;font-size:13px;color:var(--accent);cursor:pointer" onclick="openTxList(currentLogMonth,null,'Okategoriserat')">Visa okategoriserade transaktioner (<span id="log-unknown-count">0</span>)</div>
   <div class="log-viewport" id="log-viewport">
     <div class="log-track" id="log-track">
@@ -501,6 +502,16 @@
     <div class="modal-title">Välj kategori</div>
     <div class="import-cat-list" id="quickcat-list"></div>
     <button class="cancel-btn" onclick="closeOverlay('quickcat-overlay')">Avbryt</button>
+  </div>
+</div>
+
+<!-- MODAL: donut — fördelning av lönen för perioden -->
+<div class="overlay" id="donut-overlay" onclick="closeDonutOverlay(event)">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="donut-title">Fördelning av lönen</div>
+    <div id="donut-content" style="max-height:62vh;overflow-y:auto;-webkit-overflow-scrolling:touch"></div>
+    <button class="cancel-btn" onclick="closeOverlay('donut-overlay')">Stäng</button>
   </div>
 </div>
 
@@ -979,7 +990,12 @@ function buildLogPaneHTML(key){
       const manual=entry[sc.id]||0;
       const imported=getImportedSum(key,sc.id);
       const total=manual+imported;
+      // "Var gick det fel": rött värde + överdragsbelopp när kategorin ligger över sin
+      // budget. Bara när budget faktiskt satts (>0) — annars skulle allt lysa rött för
+      // den som inte budgeterat en kategori. Enbart logg-kategorier har ingen budget.
+      const over=bv!==null&&bv>0&&total>bv;
       const notes=[bv!==null?`budget: ${fmt(bv)} kr`:'ingen budget'];
+      if(over)notes.push(`<span style="color:var(--red)">+${fmt(total-bv)} kr över</span>`);
       if(imported)notes.push(`varav enskilda köp: ${fmt(imported)} kr`);
       // Om det finns importerade poster går noten att trycka på för att se/kategorisera om dem.
       const notesHTML=imported
@@ -988,7 +1004,7 @@ function buildLogPaneHTML(key){
       html+=`<div class="row">
         <span class="row-dot" style="background:${cat.color}"></span>
         <span class="row-label">${sc.label}${notesHTML}</span>
-        <span class="row-value editable" onclick="openNumModal('${sc.id}','${sc.label}','log','${key}')">
+        <span class="row-value editable"${over?' style="color:var(--red)"':''} onclick="openNumModal('${sc.id}','${sc.label}','log','${key}')">
           <span>${fmt(total)}</span> kr
         </span>
       </div>`;
@@ -1586,6 +1602,82 @@ function openLogIncome(){
   openNumModal('income','Lön denna period','log');
 }
 
+// ======= DONUT: FÖRDELNING AV LÖNEN =======
+function periodIncome(key){return log[key]?.income!=null?log[key].income:(budget.income||0)}
+// Dataunderlag per HUVUDkategori: fasta underkategorier räknas till sina BUDGETVÄRDEN
+// (fasta loggas aldrig i appen — antagna belopp), variabla/enbart logg till faktiskt
+// utfall (manuellt klumpbelopp + enskilda köp/import). Nollrader utelämnas.
+function computeDonutData(key){
+  const entry=log[key]||{};
+  const groups=[];
+  cats.forEach(cat=>{
+    let catSum=0;const subs=[];
+    cat.subcats.forEach(sc=>{
+      const amount=sc.type==='fixed'?(budget[sc.id]||0):((entry[sc.id]||0)+getImportedSum(key,sc.id));
+      if(amount<=0)return;
+      catSum+=amount;
+      subs.push({label:sc.label,amount,fixed:sc.type==='fixed'});
+    });
+    if(catSum>0)groups.push({label:cat.label,color:cat.color,amount:catSum,subs});
+  });
+  const income=periodIncome(key);
+  const used=groups.reduce((s,g)=>s+g.amount,0);
+  return {income,groups,used,left:Math.max(0,income-used)};
+}
+function openDonut(){
+  const key=currentLogMonth;
+  const d=computeDonutData(key);
+  document.getElementById('donut-title').textContent='Fördelning av lönen · '+keyLabel(key);
+  const el=document.getElementById('donut-content');
+  if(d.income<=0){
+    el.innerHTML='<div class="delete-warning">Sätt en lön först — antingen standardlönen på Budget-fliken eller periodens lön här i Logg.</div>';
+    openOverlay('donut-overlay');
+    return;
+  }
+  const pctUsed=Math.round(d.used/d.income*100);
+  // Tårtbitar: huvudkategorier + Kvar-bit. Har man gjort av med mer än lönen skalas
+  // biten mot totala utfallet istället (ingen Kvar-bit, mittensiffran blir >100 % röd).
+  const R=48,C=2*Math.PI*R,denom=Math.max(d.income,d.used)||1;
+  const slices=d.groups.map(g=>({color:g.color,amount:g.amount}));
+  if(d.left>0)slices.push({color:'#E3E2DE',amount:d.left});
+  let off=0,arcs='';
+  slices.forEach(s=>{
+    const len=s.amount/denom*C;
+    arcs+=`<circle cx="65" cy="65" r="${R}" fill="none" stroke="${s.color}" stroke-width="18" stroke-dasharray="${len.toFixed(2)} ${(C-len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 65 65)"/>`;
+    off+=len;
+  });
+  let html=`<div style="display:flex;justify-content:center;margin-bottom:.9rem">
+    <svg viewBox="0 0 130 130" width="150" height="150">${arcs}
+      <text x="65" y="62" text-anchor="middle" font-size="18" font-weight="600" fill="${pctUsed>100?'#C0392B':'#111111'}">${pctUsed}%</text>
+      <text x="65" y="78" text-anchor="middle" font-size="9" fill="#6B6866">av lönen använd</text>
+    </svg></div>
+    <div style="font-size:12px;color:var(--text2);text-align:center;margin-bottom:.6rem">Lön: ${fmt(d.income)} kr</div>`;
+  d.groups.forEach(g=>{
+    const gp=Math.round(g.amount/d.income*100);
+    html+=`<div style="display:flex;align-items:center;gap:.5rem;margin-top:.55rem">
+      <span class="row-dot" style="background:${g.color}"></span>
+      <span style="flex:1;font-size:14px;font-weight:600">${g.label}</span>
+      <span style="font-size:13px;color:var(--text2)">${gp}% · ${fmt(g.amount)} kr</span></div>`;
+    g.subs.forEach(sc=>{
+      const sp=Math.round(sc.amount/d.income*100);
+      html+=`<div style="display:flex;gap:.5rem;padding-left:1.1rem;font-size:12px;color:var(--text2)">
+        <span style="flex:1">${sc.label}${sc.fixed?' (budget)':''}</span><span>${sp}% · ${fmt(sc.amount)} kr</span></div>`;
+    });
+  });
+  if(d.left>0){
+    html+=`<div style="display:flex;align-items:center;gap:.5rem;margin-top:.55rem">
+      <span class="row-dot" style="background:#E3E2DE"></span>
+      <span style="flex:1;font-size:14px;font-weight:600">Kvar av lönen</span>
+      <span style="font-size:13px;color:var(--text2)">${Math.round(d.left/d.income*100)}% · ${fmt(d.left)} kr</span></div>`;
+  }
+  html+=`<div style="font-size:11px;color:var(--text2);margin-top:.8rem;line-height:1.4">Poster märkta (budget) är fasta utgifter till budgeterat belopp — de loggas inte i appen.</div>`;
+  el.innerHTML=html;
+  openOverlay('donut-overlay');
+}
+function closeDonutOverlay(e){
+  if(!e||e.target===document.getElementById('donut-overlay'))closeOverlay('donut-overlay');
+}
+
 function openLearnRule(item, subcatId){
   learnCtx={item,subcatId};
   // Strippa bank-prefix (t.ex. "Kortköp", "Autogiro", "Swish") så mönstret
@@ -1748,6 +1840,7 @@ function renderAnalys(){
   html+=`<div class="section"><div class="section-label">Trend – faktisk spending</div>
     ${buildTrendChart(keys,logCats2)}
     <div class="trend-legend">
+      <div class="trend-legend-item"><span style="display:inline-block;width:16px;border-top:2px dashed #C0392B"></span>Budget (lön − fasta)</div>
       ${logCats2.map(c=>`<div class="trend-legend-item"><span class="trend-dot" style="background:${c.color}"></span>${c.label}</div>`).join('')}
     </div>
   </div>`;
@@ -1765,7 +1858,12 @@ function buildTrendChart(keys,logCats2){
     const e=log[k]||{};
     return logCats2.map(cat=>cat.subcats.filter(s=>s.type!=='fixed').reduce((s,sc)=>s+(e[sc.id]||0)+getImportedSum(k,sc.id),0));
   });
-  const maxTotal=Math.max(...data.map(d=>d.reduce((s,v)=>s+v,0)),1);
+  // Budgetlinjens värde per period: rörligt utrymme (lön − fasta). Loggad periodlön
+  // används där den finns, annars standardlönen. Klipps vid 0 (fasta > lön ska inte
+  // rita linjen under baslinjen). OBS: nuvarande budget gäller retroaktivt — appen
+  // sparar ingen budgethistorik.
+  const budgetVals=keys.map(k=>Math.max(0,periodVariableBudget(k)));
+  const maxTotal=Math.max(...data.map(d=>d.reduce((s,v)=>s+v,0)),...budgetVals,1);
   const step=cW/n,barW=Math.min(step*.65,28);
   let svg=`<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:calc(100% - 2.5rem);height:auto;display:block;margin:0 1.25rem">`;
   for(let i=0;i<=4;i++){
@@ -1783,6 +1881,13 @@ function buildTrendChart(keys,logCats2){
     const showLabel=n<=8||i===0||i===n-1||i%Math.ceil(n/6)===0;
     if(showLabel){const[,m]=k.split('-');svg+=`<text x="${(x+barW/2).toFixed(1)}" y="${H-7}" text-anchor="middle" font-size="8.5" fill="#6B6866">${MONTHS_SHORT[+m-1]}</text>`;}
   });
+  // Streckad budgetlinje över staplarna — stapel över linjen = spräckt budget den månaden
+  const linePts=keys.map((k,i)=>{
+    const lx=PL+i*step+step/2;
+    const ly=PT+cH-(budgetVals[i]/maxTotal)*cH;
+    return lx.toFixed(1)+','+ly.toFixed(1);
+  }).join(' ');
+  svg+=`<polyline points="${linePts}" fill="none" stroke="#C0392B" stroke-width="1.5" stroke-dasharray="5 4"/>`;
   return svg+'</svg>';
 }
 
