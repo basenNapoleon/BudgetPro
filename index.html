@@ -483,7 +483,11 @@
 <div class="overlay" id="quicklog-overlay" onclick="closeQuickLogOverlay(event)">
   <div class="modal">
     <div class="modal-handle"></div>
-    <div class="modal-title">Nytt köp</div>
+    <div class="modal-title">Ny transaktion</div>
+    <div class="type-row" style="margin-bottom:.75rem">
+      <button class="type-btn qlk sel" onclick="selQlKind('expense',event)">Utgift</button>
+      <button class="type-btn qlk" onclick="selQlKind('income',event)">Inkomst / återbetalning</button>
+    </div>
     <div class="modal-input-wrap">
       <input class="modal-input" id="ql-amount" type="number" inputmode="decimal" step="0.01" placeholder="0">
       <span class="modal-currency">kr</span>
@@ -493,7 +497,7 @@
       <input class="ql-field" id="ql-note" type="text" placeholder="Notering (valfritt)">
       <input class="ql-field" id="ql-date" type="date">
     </div>
-    <button class="modal-btn" onclick="saveQuickLog()">Logga köp</button>
+    <button class="modal-btn" id="ql-save-btn" onclick="saveQuickLog()">Logga köp</button>
   </div>
 </div>
 
@@ -1309,6 +1313,14 @@ function escapeHtml(s){
   return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
+// Beloppsvisning i transaktionslistor: utgifter mörkröda med minus, inkomster mörkgröna
+// med plus — så tecknet aldrig är enda ledtråden. amount har bankens teckenkonvention
+// (negativt = utgift).
+function txAmountHTML(amount){
+  const isIncome=amount>0;
+  return `<div class="import-row-amount" style="color:${isIncome?'var(--green)':'var(--red)'}">${isIncome?'+':'−'}${fmt(Math.abs(amount))} kr</div>`;
+}
+
 function categoryBadgeHTML(item){
   if(item.suggestedCat && PENDING_CATEGORY_SUGGESTIONS[item.suggestedCat]){
     const label=PENDING_CATEGORY_SUGGESTIONS[item.suggestedCat].label;
@@ -1362,13 +1374,12 @@ function renderImportReview(){
   const unknown=importCtx.items.filter(i=>!i.subcatId);
 
   function rowHTML(item){
-    const sign=item.amount<0?'':'+';
     return `<div class="import-row">
       <div class="import-row-main">
         <div class="import-row-rubrik">${escapeHtml(item.rubrik)}</div>
         <div class="import-row-date">${item.dateISO}</div>
       </div>
-      <div class="import-row-amount">${sign}${fmt(item.amount)} kr</div>
+      ${txAmountHTML(item.amount)}
       ${categoryBadgeHTML(item)}
     </div>`;
   }
@@ -1462,7 +1473,7 @@ function renderTxList(){
         <div class="import-row-rubrik">${escapeHtml(t.rubrik)}</div>
         <div class="import-row-date">${t.dateISO}</div>
       </div>
-      <div class="import-row-amount">${fmt(-t.amount)} kr</div>
+      ${txAmountHTML(t.amount)}
       <span class="import-row-cat" onclick="openTxCatPicker('${period}','${t.id}')">Flytta</span>
       ${t.manual?`<button class="row-btn danger" onclick="deleteManualTx('${period}','${t.id}')">✕</button>`:''}
     </div>
@@ -1494,9 +1505,19 @@ function selectTxCat(subcatId){
 // inte: manuella rubriker (noteringar) kolliderar inte med bankernas rubriker.
 let quickLogCtx=null; // {subcatId}
 let qlNewType='variable';
+let qlKind='expense'; // 'expense' (sparas negativt) | 'income' (sparas positivt, minskar kategorin — t.ex. Klarna-återbetalning)
 
+function selQlKind(kind,e){
+  qlKind=kind;
+  document.querySelectorAll('.qlk').forEach(b=>b.classList.remove('sel'));
+  e.target.classList.add('sel');
+  document.getElementById('ql-save-btn').textContent=kind==='income'?'Logga inkomst':'Logga köp';
+}
 function openQuickLog(){
   quickLogCtx={subcatId:null};
+  qlKind='expense';
+  document.querySelectorAll('.qlk').forEach((b,i)=>b.classList.toggle('sel',i===0));
+  document.getElementById('ql-save-btn').textContent='Logga köp';
   document.getElementById('ql-amount').value='';
   document.getElementById('ql-note').value='';
   const di=document.getElementById('ql-date');
@@ -1583,7 +1604,11 @@ function saveQuickLog(){
   // Perioden bestäms av köpets DATUM enligt 25–25-logiken — ett köp den 26 juni hamnar
   // alltså automatiskt i juli-perioden, oavsett vilken period man råkar stå på i Logg.
   const period=periodKeyFromISO(dateISO);
-  const tx={id:uid(), dateISO, amount:-Math.abs(amount), rubrik:note||'Manuellt köp', subcatId:quickLogCtx.subcatId, manual:true};
+  // Utgifter sparas negativt (som bankernas CSV), inkomster/återbetalningar positivt —
+  // summeringen (getImportedSum räknar -amount) gör då att en återbetalning automatiskt
+  // MINSKAR kategorins utfall, precis som ett återköp ska.
+  const signedAmount=qlKind==='income'?Math.abs(amount):-Math.abs(amount);
+  const tx={id:uid(), dateISO, amount:signedAmount, rubrik:note||(qlKind==='income'?'Manuell inkomst':'Manuellt köp'), subcatId:quickLogCtx.subcatId, manual:true};
   if(!transactions[period])transactions[period]=[];
   transactions[period].push(tx);
   saveTransactions();
