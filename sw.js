@@ -2,7 +2,7 @@
 // Utan det upptäcker webbläsaren aldrig att sw.js "ändrats" (byte-för-byte-koll),
 // installerar aldrig om, och fetch-hanteraren nedan fortsätter servera den gamla,
 // cachade index.html för evigt — även efter en lyckad ny deploy på Vercel.
-const CACHE = 'budget-pro-v13';
+const CACHE = 'budget-pro-v14';
 const FILES = ['/', '/index.html', '/manifest.json'];
 
 self.addEventListener('install', e => {
