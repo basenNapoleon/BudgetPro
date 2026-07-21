@@ -282,6 +282,7 @@
   <div id="log-income-row" style="margin:-.35rem 1.25rem .6rem;text-align:center;font-size:12px;color:var(--text2);cursor:pointer;-webkit-tap-highlight-color:transparent" onclick="openLogIncome()"></div>
   <div style="margin:-.25rem 1.25rem .6rem;text-align:center;font-size:13px;color:var(--accent);cursor:pointer;-webkit-tap-highlight-color:transparent" onclick="openDonut()">Fördelning av lönen ›</div>
   <div id="log-unknown-link" style="display:none;margin:-.4rem 1.25rem .75rem;text-align:center;font-size:13px;color:var(--accent);cursor:pointer" onclick="openTxList(currentLogMonth,null,'Okategoriserat')">Visa okategoriserade transaktioner (<span id="log-unknown-count">0</span>)</div>
+  <div id="recent-tx-link" style="margin:-.25rem 1.25rem .75rem;text-align:center;font-size:13px;color:var(--accent);cursor:pointer;-webkit-tap-highlight-color:transparent" onclick="openRecentTx()">Senaste loggade transaktioner ›</div>
   <div class="log-viewport" id="log-viewport">
     <div class="log-track" id="log-track">
       <div class="log-pane" id="log-pane-prev"></div>
@@ -518,6 +519,21 @@
     <div class="modal-title" id="donut-title">Fördelning av lönen</div>
     <div id="donut-content" style="max-height:62vh;overflow-y:auto;-webkit-overflow-scrolling:touch"></div>
     <button class="cancel-btn" onclick="closeOverlay('donut-overlay')">Stäng</button>
+  </div>
+</div>
+
+<!-- MODAL: senaste loggade transaktioner (manuella + CSV), oavsett period — så man snabbt ser om något saknas -->
+<div class="overlay import-overlay" id="recent-overlay">
+  <div class="import-sheet">
+    <div class="import-header">
+      <button class="import-cancel" onclick="closeOverlay('recent-overlay')">Klart</button>
+      <div class="import-header-title">
+        <div class="import-title">Senaste transaktioner</div>
+        <div class="import-subtitle" id="recent-subtitle"></div>
+      </div>
+      <div style="width:56px"></div>
+    </div>
+    <div class="import-list" id="recent-list"></div>
   </div>
 </div>
 
@@ -1455,13 +1471,21 @@ function openTxList(period, subcatId, label){
   renderTxList();
   openOverlay('txlist-overlay');
 }
+// Sorteringsordning för transaktionslistor: nyaste transaktionsDATUM först, och för poster
+// med SAMMA datum den som loggades SENAST överst. uid() börjar med 'u'+Date.now(), så ett
+// högre id = senare inlagt — därför räcker en vanlig strängjämförelse på id som andrahandsnyckel
+// (manuella köp OCH CSV-import får båda id via uid(), så ordningen blir konsekvent för alla).
+function txSortCmp(a,b){
+  const d=b.dateISO.localeCompare(a.dateISO);
+  return d!==0?d:String(b.id).localeCompare(String(a.id));
+}
 function renderTxList(){
   if(!txListCtx)return;
   const {period,subcatId}=txListCtx;
   const list=(transactions[period]||[])
     .filter(t=>subcatId===null?!t.subcatId:t.subcatId===subcatId)
     .slice()
-    .sort((a,b)=>b.dateISO.localeCompare(a.dateISO));
+    .sort(txSortCmp);
   const el=document.getElementById('txlist-items');
   if(!list.length){
     el.innerHTML=`<div class="empty-state"><div class="empty-text">Inga transaktioner här.</div></div>`;
@@ -1497,6 +1521,69 @@ function selectTxCat(subcatId){
   renderTxList();
   renderLogg();
   if(subcatId && subcatId!==prev && !isSwishRubrik(tx.rubrik)) openLearnRule(tx, subcatId);
+}
+
+// ======= SENASTE TRANSAKTIONER (alla perioder, oavsett vilken månad man står på i Logg) =======
+// Syfte: ett snabbt sätt att se om man glömt logga något färskt köp — utan att behöva
+// bläddra fram till rätt period först. Slår ihop manuella köp + CSV-import från ALLA
+// perioder i transactions-storen, sorterar på datum och visar de N senaste.
+const RECENT_TX_LIMIT=25;
+function allTransactionsFlat(){
+  return Object.keys(transactions).flatMap(period=>
+    (transactions[period]||[]).map(t=>({...t, period}))
+  );
+}
+// Senaste 7 kalenderdagarna (idag och 6 dagar bakåt), oavsett vilken 25–25-period de tillhör —
+// till skillnad från resten av Analys som är periodbaserad. Bygger på samma transactions-store
+// som "Senaste transaktioner", men grupperar på kategori istället för att lista rad för rad.
+function topCategoriesLastWeek(limit){
+  const cutoff=new Date(todayISO()+'T00:00:00');
+  cutoff.setDate(cutoff.getDate()-6);
+  const cutoffKey=toKey(cutoff)+'-'+String(cutoff.getDate()).padStart(2,'0');
+  const sums={};
+  allTransactionsFlat().forEach(t=>{
+    if(t.amount>=0)return; // bara utgifter
+    if(t.dateISO<cutoffKey)return;
+    const key=t.subcatId||'__unknown';
+    sums[key]=(sums[key]||0)+(-t.amount);
+  });
+  return Object.entries(sums)
+    .map(([id,sum])=>({id, sum, meta:id==='__unknown'?null:subcatMeta(id)}))
+    .sort((a,b)=>b.sum-a.sum)
+    .slice(0,limit);
+}
+function openRecentTx(){
+  renderRecentTx();
+  openOverlay('recent-overlay');
+}
+function renderRecentTx(){
+  const list=allTransactionsFlat().sort(txSortCmp).slice(0,RECENT_TX_LIMIT);
+  const sub=document.getElementById('recent-subtitle');
+  const el=document.getElementById('recent-list');
+  if(!list.length){
+    sub.textContent='';
+    el.innerHTML=`<div class="empty-state"><div class="empty-icon">🧾</div><div class="empty-title">Inget loggat än</div><div class="empty-text">Logga ett köp med plusknappen eller importera en CSV så dyker det upp här.</div></div>`;
+    return;
+  }
+  // Om det gått mer än 2 dagar sedan senaste loggade köpet, flagga det tydligt högst upp —
+  // det är precis den signalen som gör det lätt att se att man ligger efter.
+  const daysSince=Math.floor((new Date(todayISO()+'T00:00:00')-new Date(list[0].dateISO+'T00:00:00'))/86400000);
+  sub.textContent=daysSince<=0?'Senast loggat idag':daysSince===1?'Senast loggat igår':`Senast loggat för ${daysSince} dagar sedan`;
+  sub.style.color=daysSince>=2?'var(--red)':'';
+  el.innerHTML=list.map(t=>{
+    const meta=t.subcatId?subcatMeta(t.subcatId):null;
+    const catLabel=meta?meta.label:'Okategoriserat';
+    return `
+    <div class="import-row">
+      <span class="row-dot" style="background:${meta?meta.catColor:'var(--text2)'};margin-top:.35rem"></span>
+      <div class="import-row-main">
+        <div class="import-row-rubrik">${escapeHtml(t.rubrik)}</div>
+        <div class="import-row-date">${t.dateISO} · ${catLabel} · ${periodLabel(t.period)}${t.manual?' · manuell':''}</div>
+      </div>
+      ${txAmountHTML(t.amount)}
+    </div>
+  `;
+  }).join('');
 }
 
 // ======= MANUELL LOGGNING AV ENSKILDA KÖP (plusknappen) =======
@@ -1788,6 +1875,30 @@ function cancelImport(){
 }
 
 // ======= ANALYS TAB =======
+function topWeekHTML(){
+  const top=topCategoriesLastWeek(5);
+  if(!top.length){
+    return `<div class="section"><div class="section-label">Senaste 7 dagarna</div><div class="card">
+      <div class="empty-state" style="padding:1.5rem"><div class="empty-text">Inga utgifter loggade den senaste veckan.</div></div>
+    </div></div>`;
+  }
+  const max=top[0].sum;
+  const rows=top.map(t=>{
+    const label=t.meta?t.meta.label:'Okategoriserat';
+    const color=t.meta?t.meta.catColor:'var(--text2)';
+    const pct=max>0?Math.max(4,(t.sum/max)*100):0;
+    return `<div class="a-row" style="flex-direction:column;align-items:stretch;gap:.3rem">
+      <div style="display:flex;align-items:center;gap:.5rem">
+        <span class="a-row-label"><span class="row-dot" style="background:${color}"></span>${escapeHtml(label)}</span>
+        <span class="a-col" style="width:auto">${fmt(t.sum)} kr</span>
+      </div>
+      <div style="height:5px;background:var(--border);border-radius:3px;overflow:hidden">
+        <div style="height:100%;width:${pct}%;background:${color};border-radius:3px"></div>
+      </div>
+    </div>`;
+  }).join('');
+  return `<div class="section"><div class="section-label">Störst utgifter, senaste 7 dagarna</div><div class="card">${rows}</div></div>`;
+}
 function renderAnalys(){
   // OBS: en period kan vara loggad HELT via CSV-import (inga manuella belopp alls) —
   // Object.keys(log) missar då perioden helt, precis som "Inte loggad ännu"-bannern gjorde
@@ -1819,6 +1930,7 @@ function renderAnalys(){
       <div class="a-sum-item"><div class="a-sum-label">Snitt utfall</div><div class="a-sum-val">${fmt(avgTotal)} kr</div></div>
       <div class="a-sum-item"><div class="a-sum-label">Differens</div><div class="a-sum-val ${totalDiff<=0?'diff-ok':'diff-over'}">${totalDiff>=0?'+':''}${fmt(totalDiff)} kr</div></div>
     </div>
+    ${topWeekHTML()}
     <div class="analys-toggle-wrap">
       <button class="toggle-btn ${analysView==='grouped'?'active':''}" onclick="setAnalysView('grouped')">Samlad</button>
       <button class="toggle-btn ${analysView==='detailed'?'active':''}" onclick="setAnalysView('detailed')">Detaljerad</button>
