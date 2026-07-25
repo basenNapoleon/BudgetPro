@@ -269,7 +269,7 @@
     <button class="month-nav-btn" onclick="changeLogMonth(-1)">‹</button>
     <div class="month-nav-center">
       <div class="month-nav-label" id="log-month-label">—</div>
-      <div class="period-sub" id="log-period-sub"></div>
+      <div class="period-sub editable" id="log-period-sub" onclick="openPaydayModal()"></div>
       <div class="month-badge" id="log-badge"></div>
     </div>
     <button class="month-nav-btn" id="log-next-btn" onclick="changeLogMonth(1)">›</button>
@@ -355,11 +355,11 @@
 
 <!-- BOTTOM NAV -->
 <nav class="bottom-nav">
-  <button class="nav-btn active" id="btn-budget" onclick="showPage('budget')">
-    <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>Budget
-  </button>
-  <button class="nav-btn" id="btn-logg" onclick="showPage('logg')">
+  <button class="nav-btn active" id="btn-logg" onclick="showPage('logg')">
     <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>Logg
+  </button>
+  <button class="nav-btn" id="btn-budget" onclick="showPage('budget')">
+    <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>Budget
   </button>
   <button class="nav-btn" id="btn-analys" onclick="showPage('analys')">
     <svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Analys
@@ -380,6 +380,21 @@
       <span class="modal-currency">kr</span>
     </div>
     <button class="modal-btn" onclick="saveNumModal()">Spara</button>
+  </div>
+</div>
+
+<!-- MODAL: sätt lönedag / periodstart för perioden -->
+<div class="overlay" id="payday-overlay" onclick="closePaydayOverlay(event)">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="payday-title">När började perioden?</div>
+    <div class="num-imported-note" id="payday-note" style="display:none"></div>
+    <div class="modal-input-wrap">
+      <input class="modal-input" id="payday-input" type="number" inputmode="numeric" min="20" max="31">
+      <span class="modal-currency" id="payday-monthlabel"></span>
+    </div>
+    <button class="modal-btn" onclick="savePayday()">Spara</button>
+    <button class="cancel-btn" onclick="resetPayday()">Återställ till 25:e</button>
   </div>
 </div>
 
@@ -837,9 +852,28 @@ function pruneLog(){
 }
 function loadTransactions(){
   try{transactions=JSON.parse(localStorage.getItem(TRANSACTIONS_KEY)||'{}')}catch(e){transactions={}}
+  rebucketTransactions(); // se till att lagrade buckets följer aktuella lönedagar (självläker
+                          // även engångsflytten av lönedags-daterade poster när modellen ändras)
   pruneTransactions();
 }
 function saveTransactions(){localStorage.setItem(TRANSACTIONS_KEY,JSON.stringify(transactions))}
+// Placera om ALLA transaktioner i rätt period-bucket enligt periodKeyFromISO (som i sin tur
+// följer lönedagarna). Körs vid laddning och efter varje ändrad lönedag, så bucket-nycklarna
+// aldrig hamnar i otakt med gränslogiken (annars kan en post visas i fel period, eller dedup
+// vid ny import missa/dubbla den).
+function rebucketTransactions(){
+  const all=[];
+  Object.values(transactions).forEach(arr=>{if(Array.isArray(arr))all.push(...arr)});
+  const fresh={};
+  all.forEach(t=>{const p=periodKeyFromISO(t.dateISO);(fresh[p]=fresh[p]||[]).push(t)});
+  transactions=fresh;
+  saveTransactions();
+}
+const PAYDAY_KEY='paydays-v1';
+function loadPaydays(){
+  try{paydayOverrides=JSON.parse(localStorage.getItem(PAYDAY_KEY)||'{}')}catch(e){paydayOverrides={}}
+}
+function savePaydays(){localStorage.setItem(PAYDAY_KEY,JSON.stringify(paydayOverrides))}
 function pruneTransactions(){
   const cutoff=new Date();cutoff.setMonth(cutoff.getMonth()-TX_RETENTION_MONTHS);
   const ck=toKey(cutoff);
@@ -869,10 +903,36 @@ function saveCustomRules(){localStorage.setItem(CUSTOM_RULES_KEY,JSON.stringify(
 function toKey(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')}
 function thisMonth(){return toKey(new Date())}
 function shiftMonthKey(key,delta){const[y,m]=key.split('-').map(Number);return toKey(new Date(y,m-1+delta,1))}
-function periodComplete(k){const[y,m]=k.split('-').map(Number);return new Date()>new Date(y,m-1,25,23,59,59)}
-// Vilken period är "aktiv" i Logg-fliken just nu, enligt 25-25-regeln.
-// En period (t.ex. "Juli" = 25 jun–25 jul) blir bara nåbar/aktiv efter att
-// den faktiskt avslutats, dvs efter den 25:e i sin egen kalendermånad.
+function daysInMonth(y,m1){return new Date(y,m1,0).getDate()} // m1 = 1-indexerad månad
+
+// ===== LÖNEDAG / PERIODGRÄNS =====
+// En period börjar på LÖNEDAGEN (default 25:e) och lönedagen är periodens FÖRSTA dag.
+// Perioden med nyckel YYYY-MM börjar på lönedagen i föregående månad och slutar dagen
+// innan lönedagen i månad MM. Ex default: 2026-07 = 25 jun–24 jul (25 jun = första dagen).
+// Lönedagen kan avvika enstaka månader (t.ex. lön 24:e när 25:e är helg) och sätts då
+// per månad i paydayOverrides. paydayFor('2026-07') = vilken dag i JULI som startar nästa
+// period (2026-08). Håll lönedagar i intervallet 20–31 så starten alltid ligger i månaden före.
+let paydayOverrides={}; // {'2026-07':24, ...} — bara avvikelser lagras; frånvaro = 25
+function paydayFor(monthKey){
+  const v=paydayOverrides[monthKey];
+  const[y,m]=monthKey.split('-').map(Number);
+  const base=(v!=null&&v>=1&&v<=31)?v:25;
+  return Math.min(base,daysInMonth(y,m)); // klamp mot månadslängd (t.ex. 31 i en 30-dagarsmånad)
+}
+function toKeyYM(y,m1){return y+'-'+String(m1).padStart(2,'0')}
+
+// Vilken period ett datum tillhör: dag >= lönedagen i datumets egen månad → NÄSTA månads
+// period (lönedagen är första dagen), annars datumets egen månad.
+function periodKeyFromISO(dateISO){
+  const d=new Date(dateISO+'T12:00:00');
+  const own=toKey(d);
+  return d.getDate()>=paydayFor(own)?shiftMonthKey(own,1):own;
+}
+// Perioden är AVSLUTAD när nästa period har börjat, dvs när lönedagen i månad MM har inträffat.
+function periodComplete(k){
+  const[y,m]=k.split('-').map(Number);
+  return new Date()>=new Date(y,m-1,paydayFor(k),0,0,0);
+}
 function currentLogPeriodKey(){
   let k=thisMonth();
   let guard=0;
@@ -880,21 +940,24 @@ function currentLogPeriodKey(){
   return k;
 }
 function todayISO(){const d=new Date();return toKey(d)+'-'+String(d.getDate()).padStart(2,'0')}
-// Vilken 25–25-period ett givet datum tillhör: dag 26+ hör till NÄSTA månads period.
-function periodKeyFromISO(dateISO){
-  const d=new Date(dateISO+'T12:00:00');
-  let k=toKey(d);
-  if(d.getDate()>25)k=shiftMonthKey(k,1);
-  return k;
-}
-// Perioden som PÅGÅR just nu — dvs den ett köp med dagens datum hamnar i. Skiljer sig från
-// currentLogPeriodKey() (senast AVSLUTADE perioden). Sedan manuell loggning infördes är den
-// pågående perioden navigeringsgränsen framåt i Logg: man måste kunna se köp man just lagt in.
-// Analys påverkas inte — den filtrerar fortfarande på periodComplete(), så pågående period
-// räknas aldrig med i snitt/trend förrän den avslutats den 25:e.
+// Perioden som PÅGÅR just nu — den ett köp med dagens datum hamnar i, och navigeringsgränsen
+// framåt i Logg. Analys påverkas inte: den filtrerar på periodComplete(), så pågående period
+// räknas aldrig med i snitt/trend förrän lönedagen passerat.
 function ongoingLogPeriodKey(){return periodKeyFromISO(todayISO())}
 function keyLabel(k){const[y,m]=k.split('-');return MONTHS_FULL[+m-1]+' '+y}
-function periodLabel(k){const[,m]=k.split('-').map(Number);return`25 ${MONTHS_SHORT[(m-2+12)%12]} – 25 ${MONTHS_SHORT[m-1]}`}
+// Periodens faktiska första och sista dag (Date-objekt), utifrån lönedagarna.
+function periodBounds(key){
+  const[y,m]=key.split('-').map(Number);
+  const prev=shiftMonthKey(key,-1);const[py,pm]=prev.split('-').map(Number);
+  const firstDay=new Date(py,pm-1,paydayFor(prev)); // lönedag föregående månad
+  const nextStart=new Date(y,m-1,paydayFor(key));   // lönedag denna månad = nästa periods start
+  const lastDay=new Date(nextStart.getTime()-86400000); // dagen innan
+  return {firstDay,lastDay};
+}
+function periodLabel(k){
+  const {firstDay,lastDay}=periodBounds(k);
+  return `${firstDay.getDate()} ${MONTHS_SHORT[firstDay.getMonth()]} – ${lastDay.getDate()} ${MONTHS_SHORT[lastDay.getMonth()]}`;
+}
 function fmt(n){return Math.round(n||0).toLocaleString('sv-SE')}
 function uid(){return 'u'+Date.now().toString(36)+Math.random().toString(36).slice(2,5)}
 function nextColor(){const used=cats.map(c=>c.color);return PALETTE.find(c=>!used.includes(c))||PALETTE[cats.length%PALETTE.length]}
@@ -1228,17 +1291,18 @@ function parseCSVSwedbank(text){
   });
   return {rows:out, skipped};
 }
-// Period = 25:e föregående månad (exkl.) t.o.m. 25:e denna månad (inkl.)
+// Periodgränser för CSV-import — samma lönedagslogik som resten av appen.
+// Första dagen (lönedagen) inklusive, sista dagen inklusive.
 function periodRange(key){
-  const [y,m]=key.split('-').map(Number);
-  const start=new Date(y, m-2, 25, 23,59,59);
-  const end=new Date(y, m-1, 25, 23,59,59);
+  const {firstDay,lastDay}=periodBounds(key);
+  const start=new Date(firstDay.getFullYear(),firstDay.getMonth(),firstDay.getDate(),0,0,0);
+  const end=new Date(lastDay.getFullYear(),lastDay.getMonth(),lastDay.getDate(),23,59,59);
   return [start,end];
 }
 function isInPeriod(dateISO, key){
   const d=new Date(dateISO+'T12:00:00');
   const [start,end]=periodRange(key);
-  return d>start && d<=end;
+  return d>=start && d<=end;
 }
 function txKey(t){ return t.dateISO+'|'+t.amount+'|'+t.rubrik; }
 
@@ -1715,6 +1779,47 @@ function deleteManualTx(period,txId){
 function openLogIncome(){
   openNumModal('income','Lön denna period','log');
 }
+
+// ======= LÖNEDAG / PERIODSTART =======
+// Perioden man tittar på (currentLogMonth) BÖRJAR på lönedagen i föregående månad.
+// Den lönedagen lagras alltså under föregående månads nyckel.
+let paydayCtx=null; // {startMonthKey}
+function openPaydayModal(){
+  const startMonth=shiftMonthKey(currentLogMonth,-1);
+  paydayCtx={startMonthKey:startMonth};
+  const cur=paydayFor(startMonth);
+  const {firstDay}=periodBounds(currentLogMonth);
+  document.getElementById('payday-title').textContent='När började '+keyLabel(currentLogMonth)+'?';
+  document.getElementById('payday-note').textContent='Perioden startar på lönedagen. Ändra bara om lönen kom en annan dag än den 25:e.';
+  document.getElementById('payday-note').style.display='block';
+  document.getElementById('payday-input').value=cur;
+  document.getElementById('payday-monthlabel').textContent=MONTHS_SHORT[firstDay.getMonth()];
+  openOverlay('payday-overlay');
+  setTimeout(()=>document.getElementById('payday-input').focus(),300);
+}
+function closePaydayOverlay(e){
+  if(!e||e.target===document.getElementById('payday-overlay')){closeOverlay('payday-overlay');paydayCtx=null;}
+}
+function applyPaydayChange(day){
+  if(!paydayCtx)return;
+  const sm=paydayCtx.startMonthKey;
+  if(day==null||day===25){delete paydayOverrides[sm];}
+  else{
+    const[y,m]=sm.split('-').map(Number);
+    const clamped=Math.max(20,Math.min(day,daysInMonth(y,m))); // håll i 20–månadsslut → starten stannar i rätt månad
+    paydayOverrides[sm]=clamped;
+  }
+  savePaydays();
+  rebucketTransactions(); // flytta transaktioner till rätt period efter den nya gränsen
+  closeOverlay('payday-overlay');paydayCtx=null;
+  renderLogg();
+}
+function savePayday(){
+  const day=parseInt(document.getElementById('payday-input').value);
+  if(isNaN(day)){applyPaydayChange(null);return;}
+  applyPaydayChange(day);
+}
+function resetPayday(){applyPaydayChange(25);}
 
 // ======= DONUT: FÖRDELNING AV LÖNEN =======
 function periodIncome(key){return log[key]?.income!=null?log[key].income:(budget.income||0)}
@@ -2353,6 +2458,7 @@ function closeTextOverlay(e){if(e.target===document.getElementById('text-overlay
 function closeDelOverlay(e){if(!e||e.target===document.getElementById('del-overlay')){closeOverlay('del-overlay');delCtx=null;}}
 
 document.getElementById('num-input').addEventListener('keydown',e=>{if(e.key==='Enter')saveNumModal()});
+document.getElementById('payday-input').addEventListener('keydown',e=>{if(e.key==='Enter')savePayday()});
 document.getElementById('text-input').addEventListener('keydown',e=>{if(e.key==='Enter')saveTextModal()});
 
 // ======= BOOT =======
@@ -2361,12 +2467,13 @@ document.getElementById('text-input').addEventListener('keydown',e=>{if(e.key===
 // att alla inputfält har minst 16px font-size (se .ql-field-kommentaren i CSS:en).
 document.addEventListener('gesturestart',e=>e.preventDefault());
 loadAll();
+loadPaydays();      // måste laddas FÖRE loadTransactions — rebucketTransactions() använder lönedagarna
 loadTransactions();
 loadCustomRules();
 const now=new Date();
 document.getElementById('b-month-label').textContent=MONTHS_FULL[now.getMonth()]+' '+now.getFullYear();
 if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
-showPage('budget');
+showPage('logg'); // Logg är startsidan — man loggar oftast, slipper en knapptryckning
 </script>
 </body>
 </html>
