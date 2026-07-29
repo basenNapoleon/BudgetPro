@@ -172,6 +172,22 @@
     .num-imported-note{font-size:12px;color:var(--text2);text-align:center;margin:-.4rem 0 .85rem}
 
     /* Manuell loggning (FAB + "Nytt köp"-modal) */
+    /* Skulder */
+    .debt-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:1rem 1.1rem;margin:0 1.25rem .75rem}
+    .debt-top{display:flex;align-items:baseline;justify-content:space-between;gap:.5rem;margin-bottom:.55rem}
+    .debt-name{font-size:16px;font-weight:600}
+    .debt-paid{font-size:13px;color:var(--text2);white-space:nowrap}
+    .debt-bar-track{height:10px;background:var(--border);border-radius:5px;overflow:hidden;margin-bottom:.5rem}
+    .debt-bar-fill{height:100%;border-radius:5px;background:var(--green);transition:width .3s}
+    .debt-bar-fill.done{background:var(--green)}
+    .debt-meta{display:flex;justify-content:space-between;font-size:12px;color:var(--text2);margin-bottom:.7rem;gap:.5rem;flex-wrap:wrap}
+    .debt-actions{display:flex;gap:.5rem}
+    .debt-btn{flex:1;padding:.5rem;border:1px solid var(--border);border-radius:10px;background:transparent;font-family:inherit;font-size:13px;font-weight:500;color:var(--text);cursor:pointer;-webkit-tap-highlight-color:transparent}
+    .debt-btn:active{opacity:.6}
+    .debt-btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+    .debt-btn-icons{display:flex;gap:0;flex-shrink:0}
+    .debt-pct{font-weight:600;color:var(--green)}
+
     .fab{position:fixed;right:1.1rem;bottom:calc(var(--nav-h) + var(--safe-bottom) + 1.1rem);width:54px;height:54px;border-radius:50%;background:var(--accent);color:#fff;border:none;font-size:30px;font-weight:300;line-height:1;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(79,70,229,.4);cursor:pointer;z-index:15;-webkit-tap-highlight-color:transparent;font-family:inherit}
     .fab:active{transform:scale(.94)}
     .ql-catbtn{display:flex;align-items:center;gap:.5rem;background:var(--bg);border-radius:12px;padding:.75rem 1rem;margin-bottom:.75rem;font-size:15px;font-weight:500;cursor:pointer;-webkit-tap-highlight-color:transparent}
@@ -293,6 +309,21 @@
   <button class="fab" onclick="openQuickLog()" title="Logga nytt köp">+</button>
 </div>
 
+<!-- ===== SKULDER ===== -->
+<div id="page-debts" class="page">
+  <div class="page-header">
+    <span class="app-title">Skulder</span>
+    <span class="sub-label">återbetalning</span>
+  </div>
+  <div id="debts-list"></div>
+  <div class="section">
+    <div class="card">
+      <div class="add-row" onclick="openDebtEditor()"><span>+</span> Lägg till skuld</div>
+    </div>
+  </div>
+  <div class="pb"></div>
+</div>
+
 <!-- ===== ANALYS ===== -->
 <div id="page-analys" class="page">
   <div class="page-header">
@@ -361,6 +392,9 @@
   <button class="nav-btn" id="btn-budget" onclick="showPage('budget')">
     <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>Budget
   </button>
+  <button class="nav-btn" id="btn-debts" onclick="showPage('debts')">
+    <svg viewBox="0 0 24 24"><path d="M3 10h18M7 15h4M6 4h12a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3z"/></svg>Skulder
+  </button>
   <button class="nav-btn" id="btn-analys" onclick="showPage('analys')">
     <svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Analys
   </button>
@@ -395,6 +429,35 @@
     </div>
     <button class="modal-btn" onclick="savePayday()">Spara</button>
     <button class="cancel-btn" onclick="resetPayday()">Återställ till 25:e</button>
+  </div>
+</div>
+
+<!-- MODAL: lägg till / redigera skuld -->
+<div class="overlay" id="debt-overlay" onclick="closeDebtOverlay(event)">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="debt-modal-title">Ny skuld</div>
+    <div class="modal-input-wrap" style="margin-bottom:.6rem">
+      <input class="text-input" id="debt-name" type="text" placeholder="Namn (t.ex. Billån)" style="font-size:18px">
+    </div>
+    <div class="ql-fields">
+      <input class="ql-field" id="debt-total" type="number" inputmode="numeric" placeholder="Totalt lån (kr)">
+      <input class="ql-field" id="debt-baseline" type="number" inputmode="numeric" placeholder="Redan betalt (kr)">
+    </div>
+    <input class="ql-field" id="debt-monthly" type="number" inputmode="numeric" placeholder="Månadsbelopp (kr)" style="width:100%;margin-bottom:.75rem">
+    <div class="ql-catbtn" onclick="openDebtCatPicker()"><span id="debt-cat-label">Koppla kategori ›</span></div>
+    <button class="modal-btn" onclick="saveDebt()">Spara skuld</button>
+    <button class="cancel-btn" id="debt-delete-btn" style="display:none;border-color:var(--red);color:var(--red)" onclick="deleteDebtFromEditor()">Ta bort skuld</button>
+  </div>
+</div>
+
+<!-- MODAL: koppla/skapa kategori för en skuld -->
+<div class="overlay" id="debtcat-overlay" onclick="closeDebtCatOverlay(event)">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Koppla till kategori</div>
+    <div class="import-cat-list" id="debtcat-list"></div>
+    <button class="cancel-btn" onclick="closeOverlay('debtcat-overlay')">Avbryt</button>
   </div>
 </div>
 
@@ -899,6 +962,51 @@ function loadCustomRules(){
 }
 function saveCustomRules(){localStorage.setItem(CUSTOM_RULES_KEY,JSON.stringify(customRules))}
 
+// ======= SKULDER =======
+const DEBTS_KEY='debts-v1';
+let debts=[]; // [{id,name,total,baseline,startMonth,subcatId}]
+function loadDebts(){
+  try{debts=JSON.parse(localStorage.getItem(DEBTS_KEY)||'[]')}catch(e){debts=[]}
+  if(!Array.isArray(debts))debts=[];
+}
+function saveDebts(){localStorage.setItem(DEBTS_KEY,JSON.stringify(debts))}
+
+// Antal AVSLUTADE perioder från startMonth t.o.m. senast avslutade period (inklusive).
+// Den stående månadsinbetalningen räknas en gång per avslutad period ("schablon") — den
+// loggas aldrig transaktion för transaktion, precis som en fast kostnad.
+function completedPeriodsSince(startKey){
+  if(!startKey)return 0;
+  if(!periodComplete(startKey))return 0;
+  const last=currentLogPeriodKey();
+  const[sy,sm]=startKey.split('-').map(Number);
+  const[ly,lm]=last.split('-').map(Number);
+  const diff=(ly-sy)*12+(lm-sm);
+  return diff<0?0:diff+1;
+}
+function debtMonthly(debt){return (debt.subcatId&&budget[debt.subcatId])||0}
+// Extra inbetalningar = allt som faktiskt loggats (manuellt + import) på den kopplade
+// kategorin, över alla perioder. Den stående posten ligger INTE här (den är schablon).
+function debtExtraPaid(debt){
+  if(!debt.subcatId)return 0;
+  let sum=0;
+  Object.keys(transactions).forEach(p=>{sum+=getImportedSum(p,debt.subcatId)});
+  Object.keys(log).forEach(p=>{sum+=(log[p]?.[debt.subcatId]||0)});
+  return sum;
+}
+function debtPaid(debt){
+  const raw=(debt.baseline||0)+debtMonthly(debt)*completedPeriodsSince(debt.startMonth)+debtExtraPaid(debt);
+  return Math.max(0,Math.min(raw,debt.total||0));
+}
+function debtStats(debt){
+  const paid=debtPaid(debt);
+  const total=debt.total||0;
+  const remaining=Math.max(0,total-paid);
+  const pct=total>0?Math.min(100,Math.round(paid/total*100)):0;
+  const monthly=debtMonthly(debt);
+  const monthsLeft=(remaining>0&&monthly>0)?Math.ceil(remaining/monthly):(remaining<=0?0:null);
+  return {paid,total,remaining,pct,monthly,monthsLeft};
+}
+
 // ======= UTILS =======
 function toKey(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')}
 function thisMonth(){return toKey(new Date())}
@@ -1007,8 +1115,148 @@ function showPage(name){
   document.getElementById('btn-'+name).classList.add('active');
   if(name==='budget')  renderBudget();
   if(name==='logg')    renderLogg();
+  if(name==='debts')   renderDebts();
   if(name==='analys')  renderAnalys();
   if(name==='settings')renderSettings();
+}
+
+// ======= SKULDER: RENDER & REDIGERING =======
+function renderDebts(){
+  const el=document.getElementById('debts-list');
+  if(!debts.length){
+    el.innerHTML=`<div class="empty-state"><div class="empty-icon">🎯</div><div class="empty-title">Inga skulder ännu</div><div class="empty-text">Lägg till ett lån eller en avbetalning för att följa hur mycket du betalat av.</div></div>`;
+    return;
+  }
+  let html='';
+  debts.forEach(d=>{
+    const s=debtStats(d);
+    const meta=d.subcatId?subcatMeta(d.subcatId):null;
+    const catNote=meta?meta.label:'ingen kopplad kategori';
+    let monthsTxt;
+    if(s.remaining<=0)monthsTxt='Klart! 🎉';
+    else if(s.monthsLeft!=null)monthsTxt=`~${s.monthsLeft} mån kvar`;
+    else monthsTxt='sätt månadsbelopp';
+    html+=`<div class="debt-card">
+      <div class="debt-top">
+        <span class="debt-name">${escapeHtml(d.name)}</span>
+        <span class="debt-paid"><span class="debt-pct">${s.pct}%</span></span>
+      </div>
+      <div class="debt-bar-track"><div class="debt-bar-fill${s.remaining<=0?' done':''}" style="width:${s.pct}%"></div></div>
+      <div class="debt-meta">
+        <span>${fmt(s.paid)} av ${fmt(s.total)} kr</span>
+        <span>Kvar: ${fmt(s.remaining)} kr · ${monthsTxt}</span>
+      </div>
+      <div class="debt-meta" style="margin-top:-.4rem">
+        <span>${s.monthly?fmt(s.monthly)+' kr/mån · ':''}${escapeHtml(catNote)}</span>
+      </div>
+      <div class="debt-actions">
+        <button class="debt-btn primary" onclick="payDebtExtra('${d.id}')"${d.subcatId?'':' disabled style="opacity:.5"'}>+ Extra inbetalning</button>
+        <button class="debt-btn" onclick="openDebtEditor('${d.id}')">Redigera</button>
+      </div>
+    </div>`;
+  });
+  el.innerHTML=html;
+}
+
+let debtCtx=null; // {id|null, subcatId}
+function openDebtEditor(id){
+  const d=id?debts.find(x=>x.id===id):null;
+  debtCtx={id:id||null, subcatId:d?d.subcatId:null};
+  document.getElementById('debt-modal-title').textContent=d?'Redigera skuld':'Ny skuld';
+  document.getElementById('debt-name').value=d?d.name:'';
+  document.getElementById('debt-total').value=d?d.total:'';
+  document.getElementById('debt-baseline').value=d?(d.baseline||''):'';
+  document.getElementById('debt-monthly').value=d&&d.subcatId?(budget[d.subcatId]||''):'';
+  updateDebtCatLabel();
+  document.getElementById('debt-delete-btn').style.display=d?'block':'none';
+  openOverlay('debt-overlay');
+}
+function closeDebtOverlay(e){
+  if(!e||e.target===document.getElementById('debt-overlay')){closeOverlay('debt-overlay');debtCtx=null;}
+}
+function updateDebtCatLabel(){
+  const meta=debtCtx&&debtCtx.subcatId?subcatMeta(debtCtx.subcatId):null;
+  document.getElementById('debt-cat-label').innerHTML=meta
+    ?`<span class="row-dot" style="background:${meta.catColor};display:inline-block"></span>&nbsp;${meta.label}`
+    :'Koppla kategori ›';
+}
+// Kopplingsväljare: visar loggbara (icke-fasta) kategorier + möjlighet att skapa en ny.
+// En skuldkategori MÅSTE vara loggbar så att extra inbetalningar kan loggas på den.
+function openDebtCatPicker(){
+  let html='';
+  cats.forEach(cat=>{
+    const sub=cat.subcats.filter(s=>s.type!=='fixed');
+    if(!sub.length)return;
+    html+=`<div class="import-cat-group-label">${cat.label}</div>`;
+    sub.forEach(sc=>{
+      html+=`<div class="import-cat-option" onclick="selectDebtCat('${sc.id}')"><span class="row-dot" style="background:${cat.color}"></span>${sc.label}</div>`;
+    });
+  });
+  html+=`<div class="add-row" onclick="createDebtCat()" style="padding:.8rem 0"><span>+</span> Skapa ny kategori för skulden</div>`;
+  document.getElementById('debtcat-list').innerHTML=html;
+  openOverlay('debtcat-overlay');
+}
+function closeDebtCatOverlay(e){
+  if(!e||e.target===document.getElementById('debtcat-overlay'))closeOverlay('debtcat-overlay');
+}
+function selectDebtCat(id){
+  if(debtCtx)debtCtx.subcatId=id;
+  updateDebtCatLabel();
+  closeOverlay('debtcat-overlay');
+}
+// Skapar en ny loggbar (variabel) underkategori under "Skulder"-huvudkategorin (skapar även
+// den huvudkategorin om den saknas), döpt efter skuldnamnet, och kopplar den direkt.
+function createDebtCat(){
+  const name=(document.getElementById('debt-name').value||'').trim()||'Avbetalning';
+  let parent=cats.find(c=>c.label.toLowerCase()==='skulder')||getCat('skulder');
+  if(!parent){
+    parent={id:uid(),label:'Skulder',color:nextColor(),subcats:[]};
+    cats.push(parent);
+  }
+  const newId=uid();
+  parent.subcats.push({id:newId,label:name,note:null,type:'variable'});
+  saveCats();
+  selectDebtCat(newId);
+}
+function saveDebt(){
+  if(!debtCtx)return;
+  const name=document.getElementById('debt-name').value.trim();
+  const total=parseInt(document.getElementById('debt-total').value)||0;
+  const baseline=parseInt(document.getElementById('debt-baseline').value)||0;
+  const monthly=parseInt(document.getElementById('debt-monthly').value)||0;
+  if(!name){alert('Ge skulden ett namn.');return;}
+  if(total<=0){alert('Ange ett totalbelopp större än 0.');return;}
+  if(!debtCtx.subcatId){alert('Koppla en kategori — det är dit du loggar extra inbetalningar.');return;}
+  // Månadsbeloppet lagras som kategorins budget (det är den stående posten).
+  budget[debtCtx.subcatId]=monthly;
+  saveBudget();
+  if(debtCtx.id){
+    const d=debts.find(x=>x.id===debtCtx.id);
+    if(d){d.name=name;d.total=total;d.baseline=baseline;d.subcatId=debtCtx.subcatId;}
+  }else{
+    debts.push({id:uid(),name,total,baseline,subcatId:debtCtx.subcatId,startMonth:ongoingLogPeriodKey()});
+  }
+  saveDebts();
+  closeOverlay('debt-overlay');debtCtx=null;
+  renderDebts();
+}
+function deleteDebtFromEditor(){
+  if(!debtCtx||!debtCtx.id)return;
+  // Tar bara bort skuld-SPÅRNINGEN, inte den kopplade kategorin eller dess loggade
+  // transaktioner (de finns kvar i Logg/Analys som vanligt).
+  debts=debts.filter(x=>x.id!==debtCtx.id);
+  saveDebts();
+  closeOverlay('debt-overlay');debtCtx=null;
+  renderDebts();
+}
+// "Extra inbetalning" — öppnar vanliga logg-rutan med skuldens kategori förvald, så
+// betalningen blir en riktig transaktion (syns i Logg/Analys OCH fyller baren extra).
+function payDebtExtra(id){
+  const d=debts.find(x=>x.id===id);
+  if(!d||!d.subcatId)return;
+  showPage('logg');
+  openQuickLog();
+  selectQuickCat(d.subcatId);
 }
 
 // ======= BUDGET TAB =======
@@ -2470,6 +2718,7 @@ loadAll();
 loadPaydays();      // måste laddas FÖRE loadTransactions — rebucketTransactions() använder lönedagarna
 loadTransactions();
 loadCustomRules();
+loadDebts();
 const now=new Date();
 document.getElementById('b-month-label').textContent=MONTHS_FULL[now.getMonth()]+' '+now.getFullYear();
 if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
