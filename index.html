@@ -444,7 +444,10 @@
       <input class="ql-field" id="debt-total" type="number" inputmode="numeric" placeholder="Totalt lån (kr)">
       <input class="ql-field" id="debt-baseline" type="number" inputmode="numeric" placeholder="Redan betalt (kr)">
     </div>
-    <input class="ql-field" id="debt-monthly" type="number" inputmode="numeric" placeholder="Månadsbelopp (kr)" style="width:100%;margin-bottom:.75rem">
+    <div class="ql-fields">
+      <input class="ql-field" id="debt-monthly" type="number" inputmode="numeric" placeholder="Månadsbelopp (kr)">
+      <input class="ql-field" id="debt-rate" type="number" inputmode="decimal" step="0.001" placeholder="Ränta (% / år)">
+    </div>
     <div class="ql-catbtn" onclick="openDebtCatPicker()"><span id="debt-cat-label">Koppla kategori ›</span></div>
     <button class="modal-btn" onclick="saveDebt()">Spara skuld</button>
     <button class="cancel-btn" id="debt-delete-btn" style="display:none;border-color:var(--red);color:var(--red)" onclick="deleteDebtFromEditor()">Ta bort skuld</button>
@@ -458,6 +461,21 @@
     <div class="modal-title">Koppla till kategori</div>
     <div class="import-cat-list" id="debtcat-list"></div>
     <button class="cancel-btn" onclick="closeOverlay('debtcat-overlay')">Avbryt</button>
+  </div>
+</div>
+
+<!-- MODAL: stäm av skuld mot verklig siffra -->
+<div class="overlay" id="reconcile-overlay" onclick="closeReconcileOverlay(event)">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Stäm av mot verklig skuld</div>
+    <div class="num-imported-note" id="reconcile-note" style="display:block"></div>
+    <div class="modal-input-wrap">
+      <input class="modal-input" id="reconcile-input" type="number" inputmode="numeric" placeholder="0">
+      <span class="modal-currency">kr</span>
+    </div>
+    <button class="modal-btn" onclick="saveReconcile()">Spara avstämning</button>
+    <button class="cancel-btn" id="reconcile-clear-btn" style="display:none" onclick="clearReconcile()">Ta bort avstämning</button>
   </div>
 </div>
 
@@ -971,40 +989,102 @@ function loadDebts(){
 }
 function saveDebts(){localStorage.setItem(DEBTS_KEY,JSON.stringify(debts))}
 
-// Antal AVSLUTADE perioder från startMonth t.o.m. senast avslutade period (inklusive).
-// Den stående månadsinbetalningen räknas en gång per avslutad period ("schablon") — den
-// loggas aldrig transaktion för transaktion, precis som en fast kostnad.
-function completedPeriodsSince(startKey){
-  if(!startKey)return 0;
-  if(!periodComplete(startKey))return 0;
+// Nycklarna för de AVSLUTADE perioderna från startMonth t.o.m. senast avslutade period.
+// Den stående månadsinbetalningen räknas en gång per avslutad period ("schablon").
+function completedPeriodKeysSince(startKey){
+  if(!startKey||!periodComplete(startKey))return [];
   const last=currentLogPeriodKey();
-  const[sy,sm]=startKey.split('-').map(Number);
-  const[ly,lm]=last.split('-').map(Number);
-  const diff=(ly-sy)*12+(lm-sm);
-  return diff<0?0:diff+1;
+  const keys=[];let k=startKey;let guard=0;
+  while(k<=last&&guard<600){keys.push(k);k=shiftMonthKey(k,1);guard++;}
+  return keys;
 }
+function completedPeriodsSince(startKey){return completedPeriodKeysSince(startKey).length}
 function debtMonthly(debt){return (debt.subcatId&&budget[debt.subcatId])||0}
-// Extra inbetalningar = allt som faktiskt loggats (manuellt + import) på den kopplade
-// kategorin, över alla perioder. Den stående posten ligger INTE här (den är schablon).
+// Faktiskt loggade (manuellt + import) inbetalningar på kategorin i EN period.
+function debtExtraInPeriod(debt,p){
+  if(!debt.subcatId)return 0;
+  return getImportedSum(p,debt.subcatId)+(log[p]?.[debt.subcatId]||0);
+}
+// Alla extra inbetalningar över alla perioder.
 function debtExtraPaid(debt){
   if(!debt.subcatId)return 0;
   let sum=0;
-  Object.keys(transactions).forEach(p=>{sum+=getImportedSum(p,debt.subcatId)});
+  const seen=new Set();
+  Object.keys(transactions).forEach(p=>{seen.add(p);sum+=getImportedSum(p,debt.subcatId)});
   Object.keys(log).forEach(p=>{sum+=(log[p]?.[debt.subcatId]||0)});
   return sum;
 }
+// Återstående SKULD (kapital) efter ränta. För ett lån går en del av varje inbetalning till
+// ränta och bara resten minskar skulden. Vi simulerar period för period: räntan läggs på
+// aktuellt saldo, sedan dras periodens inbetalning (stående + ev. extra) av. Ränta = 0 ger
+// exakt samma resultat som tidigare (hela inbetalningen minskar skulden).
+// Simulerar skulden och returnerar aktuellt saldo m.m. Om en AVSTÄMNING finns (checkpoint:
+// {periodKey, balance} — den verkliga skulden CSN visade vid en viss tidpunkt) förankras
+// simuleringen mot den siffran i stället för mot ursprungsberäkningen: allt före avstämningen
+// ignoreras (det är redan inbakat i den verkliga siffran), och bara perioder/inbetalningar
+// därefter räknas. Utan avstämning simuleras allt från startMonth som vanligt.
+function debtSim(debt){
+  const monthlyRate=(debt.rate||0)/100/12;
+  let startKey,bal;
+  if(debt.checkpoint&&debt.checkpoint.periodKey){
+    startKey=debt.checkpoint.periodKey;
+    bal=Math.max(0,debt.checkpoint.balance||0);
+  }else{
+    startKey=debt.startMonth;
+    bal=Math.max(0,(debt.total||0)-(debt.baseline||0));
+  }
+  const startBal=bal;
+  const monthly=debtMonthly(debt);
+  const completed=completedPeriodKeysSince(startKey);
+  const completedSet=new Set(completed);
+  let extraInWindow=0;
+  completed.forEach(p=>{
+    const e=debtExtraInPeriod(debt,p);
+    extraInWindow+=e;
+    bal+=bal*monthlyRate;                    // ränta på aktuellt saldo
+    bal=Math.max(0,bal-(monthly+e));         // periodens inbetalning (stående + extra)
+  });
+  // Extra som loggats i perioder efter startKey som ännu inte avslutats (pågående) — dras av
+  // direkt utan ny räntecykel så pengar man just betalat syns i baren. Perioder FÖRE startKey
+  // ignoreras helt (redan inbakade i avstämningen).
+  if(debt.subcatId){
+    Object.keys(transactions).forEach(p=>{if(p>=startKey&&!completedSet.has(p)){const e=getImportedSum(p,debt.subcatId);extraInWindow+=e;bal=Math.max(0,bal-e);}});
+    Object.keys(log).forEach(p=>{if(p>=startKey&&!completedSet.has(p)){const e=(log[p]?.[debt.subcatId]||0);extraInWindow+=e;bal=Math.max(0,bal-e);}});
+  }
+  return {remaining:bal,startBal,completedCount:completed.length,extraInWindow,monthly};
+}
+function debtRemainingBalance(debt){return debtSim(debt).remaining}
 function debtPaid(debt){
-  const raw=(debt.baseline||0)+debtMonthly(debt)*completedPeriodsSince(debt.startMonth)+debtExtraPaid(debt);
-  return Math.max(0,Math.min(raw,debt.total||0));
+  const total=debt.total||0;
+  return Math.max(0,Math.min(total,total-debtRemainingBalance(debt)));
 }
 function debtStats(debt){
-  const paid=debtPaid(debt);
   const total=debt.total||0;
-  const remaining=Math.max(0,total-paid);
+  const sim=debtSim(debt);
+  const remaining=sim.remaining;
+  const paid=Math.max(0,Math.min(total,total-remaining));
   const pct=total>0?Math.min(100,Math.round(paid/total*100)):0;
-  const monthly=debtMonthly(debt);
-  const monthsLeft=(remaining>0&&monthly>0)?Math.ceil(remaining/monthly):(remaining<=0?0:null);
-  return {paid,total,remaining,pct,monthly,monthsLeft};
+  const monthly=sim.monthly;
+  // Inbetalt och ränta räknas inom det aktiva fönstret (sedan avstämningen om en finns,
+  // annars sedan start) — så "varav ränta" alltid stämmer med det som visas.
+  const paymentsSince=monthly*sim.completedCount+sim.extraInWindow;
+  const principalSince=Math.max(0,sim.startBal-remaining);
+  const interestSince=Math.max(0,paymentsSince-principalSince);
+  // Framåtblick: simulera återstående skuld till 0 med nuvarande takt+ränta. Ger både antal
+  // månader kvar OCH hur mycket ränta som återstår att betala (samt total kvar att betala in).
+  // monthsLeft=null om månadsbeloppet inte ens täcker räntan (skulden skulle aldrig bli 0).
+  let monthsLeft=null, interestLeft=0, payLeft=0;
+  if(remaining<=0){monthsLeft=0;}
+  else if(monthly>0){
+    const r=(debt.rate||0)/100/12;
+    if(r>0 && monthly<=remaining*r){monthsLeft=null;} // täcker inte ens räntan
+    else{
+      let b=remaining,n=0;
+      while(b>0.005&&n<100000){const int=b*r;interestLeft+=int;b+=int;const pay=Math.min(monthly,b);b-=pay;payLeft+=pay;n++;}
+      monthsLeft=n;
+    }
+  }
+  return {paid,total,remaining,pct,monthly,monthsLeft,interestLeft,payLeft,paymentsSince,interestSince,rate:debt.rate||0,reconciled:!!(debt.checkpoint&&debt.checkpoint.periodKey)};
 }
 
 // ======= UTILS =======
@@ -1121,6 +1201,12 @@ function showPage(name){
 }
 
 // ======= SKULDER: RENDER & REDIGERING =======
+// Gör om antal månader till läsbar "X år Y mån" (eller bara månader om <12).
+function timeLeftLabel(months){
+  if(months<12)return `~${months} mån`;
+  const y=Math.floor(months/12),m=months%12;
+  return m?`~${y} år ${m} mån`:`~${y} år`;
+}
 function renderDebts(){
   const el=document.getElementById('debts-list');
   if(!debts.length){
@@ -1134,8 +1220,12 @@ function renderDebts(){
     const catNote=meta?meta.label:'ingen kopplad kategori';
     let monthsTxt;
     if(s.remaining<=0)monthsTxt='Klart! 🎉';
-    else if(s.monthsLeft!=null)monthsTxt=`~${s.monthsLeft} mån kvar`;
-    else monthsTxt='sätt månadsbelopp';
+    else if(s.monthsLeft!=null)monthsTxt=timeLeftLabel(s.monthsLeft)+' kvar';
+    else monthsTxt='räcker ej till räntan';
+    // Prognos: total ränta kvar att betala tills skulden är 0, med nuvarande takt.
+    const projHTML=(s.remaining>0&&s.monthsLeft!=null&&s.rate)
+      ?`<div class="debt-meta" style="margin-top:-.4rem"><span>Kvar att betala totalt: ${fmt(s.payLeft)} kr · varav ränta ${fmt(s.interestLeft)} kr</span></div>`
+      :'';
     html+=`<div class="debt-card">
       <div class="debt-top">
         <span class="debt-name">${escapeHtml(d.name)}</span>
@@ -1147,7 +1237,12 @@ function renderDebts(){
         <span>Kvar: ${fmt(s.remaining)} kr · ${monthsTxt}</span>
       </div>
       <div class="debt-meta" style="margin-top:-.4rem">
-        <span>${s.monthly?fmt(s.monthly)+' kr/mån · ':''}${escapeHtml(catNote)}</span>
+        <span>${s.monthly?fmt(s.monthly)+' kr/mån · ':''}${s.rate?s.rate+'% ränta · ':''}${escapeHtml(catNote)}</span>
+      </div>
+      ${projHTML}
+      ${s.rate?`<div class="debt-meta" style="margin-top:-.4rem"><span>Inbetalt sedan ${s.reconciled?'avstämning':'start'}: ${fmt(s.paymentsSince)} kr · varav ränta ${fmt(s.interestSince)} kr</span></div>`:''}
+      <div class="debt-meta" style="margin-top:-.3rem">
+        <span class="editable" style="color:var(--accent)" onclick="openReconcile('${d.id}')">${s.reconciled?'Avstämd ✓ · uppdatera':'Stäm av mot verklig skuld'} ›</span>
       </div>
       <div class="debt-actions">
         <button class="debt-btn primary" onclick="payDebtExtra('${d.id}')"${d.subcatId?'':' disabled style="opacity:.5"'}>+ Extra inbetalning</button>
@@ -1167,6 +1262,7 @@ function openDebtEditor(id){
   document.getElementById('debt-total').value=d?d.total:'';
   document.getElementById('debt-baseline').value=d?(d.baseline||''):'';
   document.getElementById('debt-monthly').value=d&&d.subcatId?(budget[d.subcatId]||''):'';
+  document.getElementById('debt-rate').value=d&&d.rate?d.rate:'';
   updateDebtCatLabel();
   document.getElementById('debt-delete-btn').style.display=d?'block':'none';
   openOverlay('debt-overlay');
@@ -1224,6 +1320,7 @@ function saveDebt(){
   const total=parseInt(document.getElementById('debt-total').value)||0;
   const baseline=parseInt(document.getElementById('debt-baseline').value)||0;
   const monthly=parseInt(document.getElementById('debt-monthly').value)||0;
+  const rate=parseFloat((document.getElementById('debt-rate').value||'').replace(',','.'))||0;
   if(!name){alert('Ge skulden ett namn.');return;}
   if(total<=0){alert('Ange ett totalbelopp större än 0.');return;}
   if(!debtCtx.subcatId){alert('Koppla en kategori — det är dit du loggar extra inbetalningar.');return;}
@@ -1232,9 +1329,9 @@ function saveDebt(){
   saveBudget();
   if(debtCtx.id){
     const d=debts.find(x=>x.id===debtCtx.id);
-    if(d){d.name=name;d.total=total;d.baseline=baseline;d.subcatId=debtCtx.subcatId;}
+    if(d){d.name=name;d.total=total;d.baseline=baseline;d.subcatId=debtCtx.subcatId;d.rate=rate;}
   }else{
-    debts.push({id:uid(),name,total,baseline,subcatId:debtCtx.subcatId,startMonth:ongoingLogPeriodKey()});
+    debts.push({id:uid(),name,total,baseline,subcatId:debtCtx.subcatId,startMonth:ongoingLogPeriodKey(),rate});
   }
   saveDebts();
   closeOverlay('debt-overlay');debtCtx=null;
@@ -1257,6 +1354,45 @@ function payDebtExtra(id){
   showPage('logg');
   openQuickLog();
   selectQuickCat(d.subcatId);
+}
+
+// ======= AVSTÄMNING MOT VERKLIG SKULD =======
+// Sätter en checkpoint: "vid början av innevarande period var den verkliga skulden X kr".
+// Simuleringen förankras då mot X och ignorerar allt dessförinnan — så kortet matchar det
+// CSN faktiskt visar, oavsett hur CSN räknar ränta internt. Framåt amorteras det vidare från X.
+let reconcileCtx=null; // {debtId}
+function openReconcile(id){
+  const d=debts.find(x=>x.id===id);
+  if(!d)return;
+  reconcileCtx={debtId:id};
+  const calc=Math.round(debtRemainingBalance(d));
+  const note=document.getElementById('reconcile-note');
+  note.innerHTML=`Skriv in skulden som den faktiskt är just nu (t.ex. från CSN). Appen räknar vidare från den siffran.<br>Appens uträkning nu: <strong>${fmt(calc)} kr</strong>.`;
+  document.getElementById('reconcile-input').value=d.checkpoint&&d.checkpoint.balance!=null?d.checkpoint.balance:'';
+  document.getElementById('reconcile-clear-btn').style.display=(d.checkpoint&&d.checkpoint.periodKey)?'block':'none';
+  openOverlay('reconcile-overlay');
+  setTimeout(()=>document.getElementById('reconcile-input').focus(),300);
+}
+function closeReconcileOverlay(e){
+  if(!e||e.target===document.getElementById('reconcile-overlay')){closeOverlay('reconcile-overlay');reconcileCtx=null;}
+}
+function saveReconcile(){
+  if(!reconcileCtx)return;
+  const d=debts.find(x=>x.id===reconcileCtx.debtId);
+  if(!d)return;
+  const val=parseInt(document.getElementById('reconcile-input').value);
+  if(isNaN(val)||val<0){alert('Ange skuldens verkliga belopp.');return;}
+  d.checkpoint={periodKey:ongoingLogPeriodKey(),balance:val,dateISO:todayISO()};
+  saveDebts();
+  closeOverlay('reconcile-overlay');reconcileCtx=null;
+  renderDebts();
+}
+function clearReconcile(){
+  if(!reconcileCtx)return;
+  const d=debts.find(x=>x.id===reconcileCtx.debtId);
+  if(d){delete d.checkpoint;saveDebts();}
+  closeOverlay('reconcile-overlay');reconcileCtx=null;
+  renderDebts();
 }
 
 // ======= BUDGET TAB =======
