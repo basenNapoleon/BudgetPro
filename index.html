@@ -188,6 +188,26 @@
     .debt-btn-icons{display:flex;gap:0;flex-shrink:0}
     .debt-pct{font-weight:600;color:var(--green)}
 
+    /* Konto & mörkertal (avstämning + våg) */
+    .recon-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:1rem 1.1rem;margin:0 1.25rem 1rem}
+    .recon-scale{display:flex;align-items:flex-end;gap:.6rem;height:64px;margin:.6rem 0 .3rem}
+    .recon-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end}
+    .recon-bar{width:100%;border-radius:6px 6px 0 0;min-height:3px}
+    .recon-bar.in{background:var(--green)}
+    .recon-bar.out{background:var(--red)}
+    .recon-col-label{font-size:11px;color:var(--text2);margin-top:4px}
+    .recon-col-val{font-size:13px;font-weight:600;margin-bottom:3px}
+    .recon-net{text-align:center;font-size:13px;margin:.2rem 0 .8rem}
+    .recon-line{display:flex;justify-content:space-between;padding:.35rem 0;font-size:14px;border-bottom:1px solid var(--border)}
+    .recon-line:last-of-type{border-bottom:none}
+    .recon-line .lbl{color:var(--text2)}
+    .recon-line.tot{font-weight:600}
+    .recon-line.tap{cursor:pointer;-webkit-tap-highlight-color:transparent;color:var(--accent)}
+    .recon-morkertal{margin-top:.6rem;border-radius:12px;padding:.7rem 1rem;text-align:center;font-size:14px}
+    .recon-morkertal.ok{background:var(--green-bg);color:var(--green)}
+    .recon-morkertal.over{background:var(--red-bg);color:var(--red)}
+    .recon-morkertal.neutral{background:var(--bg);color:var(--text2)}
+
     .fab{position:fixed;right:1.1rem;bottom:calc(var(--nav-h) + var(--safe-bottom) + 1.1rem);width:54px;height:54px;border-radius:50%;background:var(--accent);color:#fff;border:none;font-size:30px;font-weight:300;line-height:1;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(79,70,229,.4);cursor:pointer;z-index:15;-webkit-tap-highlight-color:transparent;font-family:inherit}
     .fab:active{transform:scale(.94)}
     .ql-catbtn{display:flex;align-items:center;gap:.5rem;background:var(--bg);border-radius:12px;padding:.75rem 1rem;margin-bottom:.75rem;font-size:15px;font-weight:500;cursor:pointer;-webkit-tap-highlight-color:transparent}
@@ -479,6 +499,20 @@
   </div>
 </div>
 
+<!-- MODAL: kontosaldo (ingående / faktiskt nu) för mörkertal -->
+<div class="overlay" id="account-overlay" onclick="closeAccountOverlay(event)">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="account-title">Kontosaldo</div>
+    <div class="num-imported-note" id="account-note" style="display:block"></div>
+    <div class="modal-input-wrap">
+      <input class="modal-input" id="account-input" type="number" inputmode="numeric" placeholder="0">
+      <span class="modal-currency">kr</span>
+    </div>
+    <button class="modal-btn" onclick="saveAccountBalance()">Spara</button>
+  </div>
+</div>
+
 <!-- MODAL: text input + type selector (subcat / category rename) -->
 <div class="overlay" id="text-overlay" onclick="closeTextOverlay(event)">
   <div class="modal">
@@ -491,6 +525,10 @@
       <button class="type-btn" onclick="selType('fixed')">Fast</button>
       <button class="type-btn" onclick="selType('variable')">Variabel</button>
       <button class="type-btn" onclick="selType('log-only')">Enbart logg</button>
+    </div>
+    <div id="showinlog-row" class="sugg-row" style="display:none;border:1px solid var(--border);border-radius:12px;margin-bottom:1rem" onclick="toggleShowInLog()">
+      <span class="sugg-check" id="showinlog-check"></span>
+      <span class="sugg-label">Visa i logg<small>Låter dig logga extra insättningar/betalningar utöver det fasta beloppet (t.ex. resekassa)</small></span>
     </div>
     <button class="modal-btn" onclick="saveTextModal()">Spara</button>
   </div>
@@ -989,6 +1027,48 @@ function loadDebts(){
 }
 function saveDebts(){localStorage.setItem(DEBTS_KEY,JSON.stringify(debts))}
 
+// ======= KONTO & MÖRKERTAL (avstämning) =======
+// Jämför vad appen TROR att du har på kontot mot vad du FAKTISKT har. Skillnaden = mörkertal
+// (oftast ologgade köp). Eftersom lön och fasta kostnader inte loggas transaktion för
+// transaktion antas de fasta ha lämnat kontot med sina budgetbelopp (bekräftat med användaren).
+const ACCOUNT_KEY='account-v1';
+let accountBalances={}; // {periodKey:{opening,current}}
+function loadAccount(){
+  try{accountBalances=JSON.parse(localStorage.getItem(ACCOUNT_KEY)||'{}')}catch(e){accountBalances={}}
+}
+function saveAccount(){localStorage.setItem(ACCOUNT_KEY,JSON.stringify(accountBalances))}
+function debtSubcatIdSet(){return new Set(debts.map(d=>d.subcatId).filter(Boolean))}
+function reconcileData(key){
+  const income=periodIncome(key);
+  const debtIds=debtSubcatIdSet();
+  // Fasta kostnader = budget för alla fasta underkategorier (antas betalda).
+  let fasta=0;
+  cats.forEach(cat=>cat.subcats.forEach(sc=>{if(sc.type==='fixed')fasta+=(budget[sc.id]||0)}));
+  // Skulder = budget (stående månadsbelopp) för skuldkopplade kategorier (variabla, antas betalda).
+  let skulder=0;
+  debtIds.forEach(id=>{skulder+=(budget[id]||0)});
+  // Rörliga = faktiskt loggade köp (manuellt + import) på alla icke-fasta kategorier, PLUS
+  // extra insättningar loggade på fasta-som-visas-i-loggen (t.ex. resekassa). Fångar även
+  // EXTRA skuldinbetalningar (de loggas), men INTE den stående posten (den ligger i "skulder"
+  // resp. "fasta" ovan via budget), så inget dubbelräknas.
+  let rorliga=0;
+  cats.forEach(cat=>cat.subcats.forEach(sc=>{
+    if(sc.type!=='fixed'||sc.showInLog)rorliga+=((log[key]?.[sc.id]||0)+getImportedSum(key,sc.id));
+  }));
+  const outflow=fasta+skulder+rorliga;
+  const bal=accountBalances[key]||{};
+  // Varje period är fristående — ingående saldo ärvs ALDRIG från förra perioden (Oskar för
+  // över allt överskott till resekassan, så nästa period börjar på noll och man ska klara sig
+  // på månadens inkomst). Default 0; sätt bara ett värde om du behåller en buffert på kontot.
+  const opening=(bal.opening!=null)?bal.opening:0;
+  const openingSet=bal.opening!=null;
+  const expected=opening+income-outflow;
+  const current=(bal.current!=null)?bal.current:null;
+  const morkertal=(current!=null)?expected-current:null;
+  return {income,fasta,skulder,rorliga,outflow,opening,openingSet,expected,current,morkertal,hasOpening:true};
+}
+
+
 // Nycklarna för de AVSLUTADE perioderna från startMonth t.o.m. senast avslutade period.
 // Den stående månadsinbetalningen räknas en gång per avslutad period ("schablon").
 function completedPeriodKeysSince(startKey){
@@ -1153,6 +1233,11 @@ function nextColor(){const used=cats.map(c=>c.color);return PALETTE.find(c=>!use
 // Derived helpers
 function getBudgetSubcats(){return cats.flatMap(cat=>cat.subcats.filter(s=>s.type!=='log-only').map(s=>({...s,catColor:cat.color,catLabel:cat.label})))}
 function getLogSubcats(){return cats.flatMap(cat=>cat.subcats.filter(s=>s.type!=='fixed').map(s=>({...s,catColor:cat.color,catLabel:cat.label})))}
+// Visas underkategorin i Logg? Alla icke-fasta, PLUS fasta som fått "visa i logg" (för att
+// kunna logga extra insättningar/betalningar utöver den fasta budgetposten, t.ex. resekassa).
+// OBS: fasta-med-visning räknas fortfarande som FAST i budget/rörligt utrymme och i variabel
+// Utfall/trend (getLogSubcats ovan) — de dyker bara upp i loggpanelen för extra-loggning.
+function showsInLog(sc){return sc.type!=='fixed'||!!sc.showInLog}
 function getCat(catId){return cats.find(c=>c.id===catId)}
 function availableForVariable(){
   const fixedTotal=cats.flatMap(c=>c.subcats).filter(s=>s.type==='fixed').reduce((s,sc)=>s+(budget[sc.id]||0),0);
@@ -1451,22 +1536,28 @@ function buildLogPaneHTML(key){
   const entry=log[key]||{};
   let html='';
   cats.forEach(cat=>{
-    const sub=cat.subcats.filter(s=>s.type!=='fixed');
+    const sub=cat.subcats.filter(s=>showsInLog(s));
     if(!sub.length)return;
     html+=`<div class="section"><div class="section-label">${cat.label}</div><div class="card">`;
     sub.forEach(sc=>{
-      const bv=sc.type==='log-only'?null:(budget[sc.id]||0);
+      const isFixedShown=sc.type==='fixed';
       const manual=entry[sc.id]||0;
       const imported=getImportedSum(key,sc.id);
       const total=manual+imported;
-      // "Var gick det fel": rött värde + överdragsbelopp när kategorin ligger över sin
-      // budget. Bara när budget faktiskt satts (>0) — annars skulle allt lysa rött för
-      // den som inte budgeterat en kategori. Enbart logg-kategorier har ingen budget.
-      const over=bv!==null&&bv>0&&total>bv;
-      const notes=[bv!==null?`budget: ${fmt(bv)} kr`:'ingen budget'];
-      if(over)notes.push(`<span style="color:var(--red)">+${fmt(total-bv)} kr över</span>`);
-      if(imported)notes.push(`varav enskilda köp: ${fmt(imported)} kr`);
-      // Om det finns importerade poster går noten att trycka på för att se/kategorisera om dem.
+      let notes,over=false;
+      if(isFixedShown){
+        // Fast post som visas i loggen (t.ex. resekassa) — den fasta månadsposten dras
+        // automatiskt via budgeten; här loggar man bara EXTRA insättningar. Ingen
+        // över-budget-markering (den fasta delen loggas inte, så "total" är bara extra).
+        notes=[`fast: ${fmt(budget[sc.id]||0)} kr/mån · logga extra`];
+        if(imported)notes.push(`varav enskilda: ${fmt(imported)} kr`);
+      }else{
+        const bv=sc.type==='log-only'?null:(budget[sc.id]||0);
+        over=bv!==null&&bv>0&&total>bv;
+        notes=[bv!==null?`budget: ${fmt(bv)} kr`:'ingen budget'];
+        if(over)notes.push(`<span style="color:var(--red)">+${fmt(total-bv)} kr över</span>`);
+        if(imported)notes.push(`varav enskilda köp: ${fmt(imported)} kr`);
+      }
       const notesHTML=imported
         ? `<small class="editable" onclick="openTxList('${key}','${sc.id}','${escapeHtml(sc.label)}')">${notes.join(' · ')} ›</small>`
         : `<small>${notes.join(' · ')}</small>`;
@@ -2073,15 +2164,15 @@ function closeQuickCatOverlay(e){
   if(!e||e.target===document.getElementById('quickcat-overlay'))closeOverlay('quickcat-overlay');
 }
 function renderQuickCatList(){
-  // Bara icke-fasta underkategorier — fasta visas inte i Logg-fliken, så ett manuellt köp
-  // dit skulle bli osynligt. (Fasta hanteras via Budget, inte köp för köp.)
+  // Icke-fasta underkategorier + fasta som visas i loggen (t.ex. resekassa) — så man kan
+  // logga en extra insättning/betalning på dem. Rena fasta (hyra m.m.) hålls utanför.
   let html='';
   cats.forEach(cat=>{
-    const sub=cat.subcats.filter(s=>s.type!=='fixed');
+    const sub=cat.subcats.filter(s=>showsInLog(s));
     if(!sub.length)return;
     html+=`<div class="import-cat-group-label">${cat.label}</div>`;
     sub.forEach(sc=>{
-      html+=`<div class="import-cat-option" onclick="selectQuickCat('${sc.id}')"><span class="row-dot" style="background:${cat.color}"></span>${sc.label}</div>`;
+      html+=`<div class="import-cat-option" onclick="selectQuickCat('${sc.id}')"><span class="row-dot" style="background:${cat.color}"></span>${sc.label}${sc.type==='fixed'?' <span style="color:var(--text2);font-size:12px">(extra)</span>':''}</div>`;
     });
   });
   html+=`<div class="add-row" onclick="renderQuickCatCreate()" style="padding:.8rem 0"><span>+</span> Ny underkategori</div>`;
@@ -2216,7 +2307,11 @@ function computeDonutData(key){
   cats.forEach(cat=>{
     let catSum=0;const subs=[];
     cat.subcats.forEach(sc=>{
-      const amount=sc.type==='fixed'?(budget[sc.id]||0):((entry[sc.id]||0)+getImportedSum(key,sc.id));
+      // Fast post = budgetbelopp. Fast-som-visas-i-loggen = budget + ev. extra insättningar
+      // (så en extra spar-överföring syns i fördelningen). Icke-fast = faktiskt loggat.
+      const amount=sc.type==='fixed'
+        ?((budget[sc.id]||0)+(sc.showInLog?((entry[sc.id]||0)+getImportedSum(key,sc.id)):0))
+        :((entry[sc.id]||0)+getImportedSum(key,sc.id));
       if(amount<=0)return;
       catSum+=amount;
       subs.push({label:sc.label,amount,fixed:sc.type==='fixed'});
@@ -2364,6 +2459,75 @@ function cancelImport(){
 }
 
 // ======= ANALYS TAB =======
+// ===== Konto & mörkertal (avstämning + våg) =====
+function buildReconcileHTML(key){
+  const d=reconcileData(key);
+  const inTot=d.income;
+  const outTot=d.outflow;
+  const maxv=Math.max(inTot,outTot,1);
+  const inH=Math.max(3,Math.round(inTot/maxv*58));
+  const outH=Math.max(3,Math.round(outTot/maxv*58));
+  const net=inTot-outTot;
+  const netTxt=net>=0
+    ?`<span style="color:var(--green)">+${fmt(net)} kr över</span> denna period`
+    :`<span style="color:var(--red)">${fmt(net)} kr</span> — du gör av med mer än du får in`;
+
+  let mt='';
+  if(d.current==null){
+    mt=`<div class="recon-morkertal neutral">Fyll i "Faktiskt saldo nu" för att se mörkertal.</div>`;
+  }else if(Math.abs(d.morkertal)<1){
+    mt=`<div class="recon-morkertal ok">✓ Stämmer — inget mörkertal</div>`;
+  }else if(d.morkertal>0){
+    mt=`<div class="recon-morkertal over">Mörkertal: ${fmt(d.morkertal)} kr<br><span style="font-size:12px">Du har mindre än väntat — troligen ${fmt(d.morkertal)} kr ologgade köp.</span></div>`;
+  }else{
+    mt=`<div class="recon-morkertal ok">+${fmt(-d.morkertal)} kr mer än väntat<br><span style="font-size:12px">Du har mer än uträkningen — kanske en ologgad inkomst eller lägre fast kostnad.</span></div>`;
+  }
+
+  return `<div class="section" style="margin-top:.25rem"><div class="section-label">Konto & mörkertal · ${keyLabel(key)}</div>
+    <div class="recon-card">
+      <div class="recon-scale">
+        <div class="recon-col"><div class="recon-col-val" style="color:var(--green)">${fmt(inTot)}</div><div class="recon-bar in" style="height:${inH}px"></div><div class="recon-col-label">In (lön)</div></div>
+        <div class="recon-col"><div class="recon-col-val" style="color:var(--red)">${fmt(outTot)}</div><div class="recon-bar out" style="height:${outH}px"></div><div class="recon-col-label">Ut (utgifter)</div></div>
+      </div>
+      <div class="recon-net">${netTxt}</div>
+      <div class="recon-line tap" onclick="openAccountModal('opening')"><span class="lbl">Ingående saldo${d.openingSet?'':' (0)'}</span><span>${fmt(d.opening)} kr ✎</span></div>
+      <div class="recon-line"><span class="lbl">+ Lön</span><span>${fmt(d.income)} kr</span></div>
+      <div class="recon-line"><span class="lbl">− Fasta kostnader</span><span>${fmt(d.fasta)} kr</span></div>
+      <div class="recon-line"><span class="lbl">− Skulder</span><span>${fmt(d.skulder)} kr</span></div>
+      <div class="recon-line"><span class="lbl">− Rörliga köp (loggade)</span><span>${fmt(d.rorliga)} kr</span></div>
+      <div class="recon-line tot"><span class="lbl">= Förväntat saldo</span><span>${d.expected!=null?fmt(d.expected)+' kr':'—'}</span></div>
+      <div class="recon-line tap" onclick="openAccountModal('current')"><span class="lbl">Faktiskt saldo nu</span><span>${d.current!=null?fmt(d.current)+' kr':'fyll i ›'}</span></div>
+      ${mt}
+    </div></div>`;
+}
+let accountCtx=null; // {which:'opening'|'current', key}
+function openAccountModal(which){
+  const key=ongoingLogPeriodKey();
+  accountCtx={which,key};
+  const d=reconcileData(key);
+  document.getElementById('account-title').textContent=which==='opening'?'Ingående saldo':'Faktiskt saldo nu';
+  document.getElementById('account-note').textContent=which==='opening'
+    ?'Saldot du börjar perioden med, innan lönen. Ärvs aldrig mellan perioder — lämna på 0 om du för över allt överskott varje månad.'
+    :'Vad du faktiskt har på kontot just nu. Jämförs mot förväntat saldo.';
+  const cur=which==='opening'?d.opening:d.current;
+  document.getElementById('account-input').value=cur!=null?cur:'';
+  openOverlay('account-overlay');
+  setTimeout(()=>document.getElementById('account-input').focus(),300);
+}
+function closeAccountOverlay(e){
+  if(!e||e.target===document.getElementById('account-overlay')){closeOverlay('account-overlay');accountCtx=null;}
+}
+function saveAccountBalance(){
+  if(!accountCtx)return;
+  const val=parseInt(document.getElementById('account-input').value);
+  if(isNaN(val)){alert('Ange ett belopp.');return;}
+  const {which,key}=accountCtx;
+  if(!accountBalances[key])accountBalances[key]={};
+  accountBalances[key][which]=val;
+  saveAccount();
+  closeOverlay('account-overlay');accountCtx=null;
+  renderAnalys();
+}
 function topWeekHTML(){
   const top=topCategoriesLastWeek(5);
   if(!top.length){
@@ -2394,8 +2558,9 @@ function renderAnalys(){
   // innan den fixades. Utgå därför från unionen av log OCH transactions, samma som isPeriodLogged().
   const keys=Array.from(new Set([...Object.keys(log), ...Object.keys(transactions)])).sort().filter(periodComplete);
   const container=document.getElementById('analys-content');
+  const reconcileHTML=buildReconcileHTML(ongoingLogPeriodKey());
   if(!keys.length){
-    container.innerHTML=`<div class="empty-state"><div class="empty-icon">📊</div><div class="empty-title">Ingen data än</div><div class="empty-text">Logga månader i Logg-fliken. Månader räknas med efter den 25:e.</div></div>`;
+    container.innerHTML=reconcileHTML+`<div class="empty-state"><div class="empty-icon">📊</div><div class="empty-title">Ingen trenddata än</div><div class="empty-text">Logga månader i Logg-fliken. Månader räknas med efter lönedagen.</div></div>`;
     return;
   }
   const n=keys.length;
@@ -2412,7 +2577,7 @@ function renderAnalys(){
   const totalDiff=avgTotal-budgTotal;
   const range=n===1?keyLabel(keys[0]):keyLabel(keys[0])+' – '+keyLabel(keys[n-1]);
 
-  let html=`
+  let html=reconcileHTML+`
     <div class="analys-meta">Baserat på ${n} månad${n!==1?'er':''} (${range})</div>
     <div class="analys-summary">
       <div class="a-sum-item"><div class="a-sum-label">Budget/mån</div><div class="a-sum-val">${fmt(budgTotal)} kr</div></div>
@@ -2633,7 +2798,7 @@ function renderCatEditor(){
   cat.subcats.forEach(sc=>{
     html+=`<div class="row">
       <span class="row-dot" style="background:${cat.color}"></span>
-      <span class="row-label">${sc.label}</span>
+      <span class="row-label">${sc.label}${sc.type==='fixed'&&sc.showInLog?'<small>visas i logg</small>':''}</span>
       <span class="type-badge ${sc.type}">${typeLabel(sc.type)}</span>
       <div class="row-btns">
         <button class="row-btn" onclick="openEditSubcat('${sc.id}')">✎</button>
@@ -2652,6 +2817,7 @@ function addCategory(){
   document.getElementById('text-title').textContent='Ny kategori';
   document.getElementById('text-input').value='';
   document.getElementById('type-row').style.display='none';
+  updateShowInLogRow();
   openOverlay('text-overlay');
   setTimeout(()=>document.getElementById('text-input').focus(),300);
 }
@@ -2662,27 +2828,30 @@ function openRenameCat(){
   document.getElementById('text-title').textContent='Ändra namn';
   document.getElementById('text-input').value=cat.label;
   document.getElementById('type-row').style.display='none';
+  updateShowInLogRow();
   openOverlay('text-overlay');
   setTimeout(()=>document.getElementById('text-input').focus(),300);
 }
 
 function openAddSubcat(){
-  textCtx={mode:'add-subcat',catId:editingCatId,selectedType:'variable'};
+  textCtx={mode:'add-subcat',catId:editingCatId,selectedType:'variable',showInLog:false};
   document.getElementById('text-title').textContent='Ny underkategori';
   document.getElementById('text-input').value='';
   document.getElementById('type-row').style.display='flex';
   updateTypeBtns('variable');
+  updateShowInLogRow();
   openOverlay('text-overlay');
   setTimeout(()=>document.getElementById('text-input').focus(),300);
 }
 
 function openEditSubcat(subcatId){
   const sc=getSubcat(editingCatId,subcatId);if(!sc)return;
-  textCtx={mode:'edit-subcat',catId:editingCatId,subcatId,selectedType:sc.type};
+  textCtx={mode:'edit-subcat',catId:editingCatId,subcatId,selectedType:sc.type,showInLog:!!sc.showInLog};
   document.getElementById('text-title').textContent='Redigera underkategori';
   document.getElementById('text-input').value=sc.label;
   document.getElementById('type-row').style.display='flex';
   updateTypeBtns(sc.type);
+  updateShowInLogRow();
   openOverlay('text-overlay');
   setTimeout(()=>document.getElementById('text-input').focus(),300);
 }
@@ -2691,12 +2860,29 @@ function selType(t){
   if(!textCtx)return;
   textCtx.selectedType=t;
   updateTypeBtns(t);
+  updateShowInLogRow();
 }
 
 function updateTypeBtns(t){
   document.querySelectorAll('.type-btn').forEach(b=>{
     b.classList.toggle('sel',b.getAttribute('onclick').includes(`'${t}'`));
   });
+}
+// "Visa i logg"-raden är bara relevant för FASTA poster (variabel/enbart logg syns redan).
+function updateShowInLogRow(){
+  const row=document.getElementById('showinlog-row');
+  if(!row)return;
+  const show=textCtx&&textCtx.selectedType==='fixed';
+  row.style.display=show?'flex':'none';
+  const chk=document.getElementById('showinlog-check');
+  const on=!!(textCtx&&textCtx.showInLog);
+  chk.className='sugg-check'+(on?' checked':'');
+  chk.textContent=on?'✓':'';
+}
+function toggleShowInLog(){
+  if(!textCtx)return;
+  textCtx.showInLog=!textCtx.showInLog;
+  updateShowInLogRow();
 }
 
 function saveTextModal(){
@@ -2712,10 +2898,10 @@ function saveTextModal(){
     if(cat){cat.label=name;saveCats();renderCatEditor();}
   }else if(ctx.mode==='add-subcat'){
     const cat=getCat(ctx.catId);
-    if(cat){cat.subcats.push({id:uid(),label:name,note:null,type:ctx.selectedType||'variable'});saveCats();renderCatEditor();}
+    if(cat){cat.subcats.push({id:uid(),label:name,note:null,type:ctx.selectedType||'variable',showInLog:ctx.selectedType==='fixed'?!!ctx.showInLog:false});saveCats();renderCatEditor();}
   }else if(ctx.mode==='edit-subcat'){
     const sc=getSubcat(ctx.catId,ctx.subcatId);
-    if(sc){sc.label=name;sc.type=ctx.selectedType||sc.type;saveCats();renderCatEditor();}
+    if(sc){sc.label=name;sc.type=ctx.selectedType||sc.type;sc.showInLog=(sc.type==='fixed')?!!ctx.showInLog:false;saveCats();renderCatEditor();}
   }
   closeOverlay('text-overlay');textCtx=null;
 }
@@ -2855,6 +3041,7 @@ loadPaydays();      // måste laddas FÖRE loadTransactions — rebucketTransact
 loadTransactions();
 loadCustomRules();
 loadDebts();
+loadAccount();
 const now=new Date();
 document.getElementById('b-month-label').textContent=MONTHS_FULL[now.getMonth()]+' '+now.getFullYear();
 if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
