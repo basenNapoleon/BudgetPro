@@ -530,6 +530,10 @@
       <span class="sugg-check" id="showinlog-check"></span>
       <span class="sugg-label">Visa i logg<small>Låter dig logga extra insättningar/betalningar utöver det fasta beloppet (t.ex. resekassa)</small></span>
     </div>
+    <div id="excludedonut-row" class="sugg-row" style="display:none;border:1px solid var(--border);border-radius:12px;margin-bottom:1rem" onclick="toggleExcludeDonut()">
+      <span class="sugg-check" id="excludedonut-check"></span>
+      <span class="sugg-label">Visa inte i donut<small>Håll utanför "Fördelning av lönen" — bra för stora engångsköp som annars dränker allt annat</small></span>
+    </div>
     <button class="modal-btn" onclick="saveTextModal()">Spara</button>
   </div>
 </div>
@@ -2303,15 +2307,19 @@ function periodIncome(key){return log[key]?.income!=null?log[key].income:(budget
 // utfall (manuellt klumpbelopp + enskilda köp/import). Nollrader utelämnas.
 function computeDonutData(key){
   const entry=log[key]||{};
+  const debtIds=debtSubcatIdSet();
   const groups=[];
   cats.forEach(cat=>{
     let catSum=0;const subs=[];
     cat.subcats.forEach(sc=>{
-      // Fast post = budgetbelopp. Fast-som-visas-i-loggen = budget + ev. extra insättningar
-      // (så en extra spar-överföring syns i fördelningen). Icke-fast = faktiskt loggat.
-      const amount=sc.type==='fixed'
-        ?((budget[sc.id]||0)+(sc.showInLog?((entry[sc.id]||0)+getImportedSum(key,sc.id)):0))
-        :((entry[sc.id]||0)+getImportedSum(key,sc.id));
+      if(sc.excludeFromDonut)return; // medvetet utanför donuten (t.ex. stora engångsköp)
+      const logged=(entry[sc.id]||0)+getImportedSum(key,sc.id);
+      // Fast post = budgetbelopp (+ ev. extra om den visas i loggen). Skuld = stående
+      // månadsbelopp (budget) + ev. extra inbetalningar. Vanlig variabel = faktiskt loggat.
+      let amount;
+      if(sc.type==='fixed')amount=(budget[sc.id]||0)+(sc.showInLog?logged:0);
+      else if(debtIds.has(sc.id))amount=(budget[sc.id]||0)+logged;
+      else amount=logged;
       if(amount<=0)return;
       catSum+=amount;
       subs.push({label:sc.label,amount,fixed:sc.type==='fixed'});
@@ -2798,7 +2806,7 @@ function renderCatEditor(){
   cat.subcats.forEach(sc=>{
     html+=`<div class="row">
       <span class="row-dot" style="background:${cat.color}"></span>
-      <span class="row-label">${sc.label}${sc.type==='fixed'&&sc.showInLog?'<small>visas i logg</small>':''}</span>
+      <span class="row-label">${sc.label}${sc.type==='fixed'&&sc.showInLog?'<small>visas i logg</small>':''}${sc.excludeFromDonut?'<small>ej i donut</small>':''}</span>
       <span class="type-badge ${sc.type}">${typeLabel(sc.type)}</span>
       <div class="row-btns">
         <button class="row-btn" onclick="openEditSubcat('${sc.id}')">✎</button>
@@ -2834,7 +2842,7 @@ function openRenameCat(){
 }
 
 function openAddSubcat(){
-  textCtx={mode:'add-subcat',catId:editingCatId,selectedType:'variable',showInLog:false};
+  textCtx={mode:'add-subcat',catId:editingCatId,selectedType:'variable',showInLog:false,excludeFromDonut:false};
   document.getElementById('text-title').textContent='Ny underkategori';
   document.getElementById('text-input').value='';
   document.getElementById('type-row').style.display='flex';
@@ -2846,7 +2854,7 @@ function openAddSubcat(){
 
 function openEditSubcat(subcatId){
   const sc=getSubcat(editingCatId,subcatId);if(!sc)return;
-  textCtx={mode:'edit-subcat',catId:editingCatId,subcatId,selectedType:sc.type,showInLog:!!sc.showInLog};
+  textCtx={mode:'edit-subcat',catId:editingCatId,subcatId,selectedType:sc.type,showInLog:!!sc.showInLog,excludeFromDonut:!!sc.excludeFromDonut};
   document.getElementById('text-title').textContent='Redigera underkategori';
   document.getElementById('text-input').value=sc.label;
   document.getElementById('type-row').style.display='flex';
@@ -2878,10 +2886,25 @@ function updateShowInLogRow(){
   const on=!!(textCtx&&textCtx.showInLog);
   chk.className='sugg-check'+(on?' checked':'');
   chk.textContent=on?'✓':'';
+  // "Visa inte i donut" gäller alla underkategori-typer (men inte vid namnbyte av huvudkategori).
+  const drow=document.getElementById('excludedonut-row');
+  if(drow){
+    const isSubcat=textCtx&&(textCtx.mode==='add-subcat'||textCtx.mode==='edit-subcat');
+    drow.style.display=isSubcat?'flex':'none';
+    const dchk=document.getElementById('excludedonut-check');
+    const don=!!(textCtx&&textCtx.excludeFromDonut);
+    dchk.className='sugg-check'+(don?' checked':'');
+    dchk.textContent=don?'✓':'';
+  }
 }
 function toggleShowInLog(){
   if(!textCtx)return;
   textCtx.showInLog=!textCtx.showInLog;
+  updateShowInLogRow();
+}
+function toggleExcludeDonut(){
+  if(!textCtx)return;
+  textCtx.excludeFromDonut=!textCtx.excludeFromDonut;
   updateShowInLogRow();
 }
 
@@ -2898,10 +2921,10 @@ function saveTextModal(){
     if(cat){cat.label=name;saveCats();renderCatEditor();}
   }else if(ctx.mode==='add-subcat'){
     const cat=getCat(ctx.catId);
-    if(cat){cat.subcats.push({id:uid(),label:name,note:null,type:ctx.selectedType||'variable',showInLog:ctx.selectedType==='fixed'?!!ctx.showInLog:false});saveCats();renderCatEditor();}
+    if(cat){cat.subcats.push({id:uid(),label:name,note:null,type:ctx.selectedType||'variable',showInLog:ctx.selectedType==='fixed'?!!ctx.showInLog:false,excludeFromDonut:!!ctx.excludeFromDonut});saveCats();renderCatEditor();}
   }else if(ctx.mode==='edit-subcat'){
     const sc=getSubcat(ctx.catId,ctx.subcatId);
-    if(sc){sc.label=name;sc.type=ctx.selectedType||sc.type;sc.showInLog=(sc.type==='fixed')?!!ctx.showInLog:false;saveCats();renderCatEditor();}
+    if(sc){sc.label=name;sc.type=ctx.selectedType||sc.type;sc.showInLog=(sc.type==='fixed')?!!ctx.showInLog:false;sc.excludeFromDonut=!!ctx.excludeFromDonut;saveCats();renderCatEditor();}
   }
   closeOverlay('text-overlay');textCtx=null;
 }
