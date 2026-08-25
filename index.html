@@ -513,6 +513,22 @@
   </div>
 </div>
 
+<!-- MODAL: bekräfta / pausa / ändra en fast post för perioden -->
+<div class="overlay" id="fixed-overlay" onclick="closeFixedOverlay(event)">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="fixed-title">Fast post</div>
+    <div class="num-imported-note" id="fixed-note" style="display:block"></div>
+    <div class="modal-input-wrap" id="fixed-amount-wrap">
+      <input class="modal-input" id="fixed-amount" type="number" inputmode="numeric" placeholder="0">
+      <span class="modal-currency">kr</span>
+    </div>
+    <button class="modal-btn" onclick="confirmFixed()">✓ Bekräfta</button>
+    <button class="cancel-btn" onclick="pauseFixed()">Pausa denna månad</button>
+    <button class="cancel-btn" id="fixed-reset-btn" style="display:none" onclick="resetFixed()">Återställ till standard</button>
+  </div>
+</div>
+
 <!-- MODAL: text input + type selector (subcat / category rename) -->
 <div class="overlay" id="text-overlay" onclick="closeTextOverlay(event)">
   <div class="modal">
@@ -1042,15 +1058,54 @@ function loadAccount(){
 }
 function saveAccount(){localStorage.setItem(ACCOUNT_KEY,JSON.stringify(accountBalances))}
 function debtSubcatIdSet(){return new Set(debts.map(d=>d.subcatId).filter(Boolean))}
+
+// ======= BEKRÄFTA FASTA POSTER (per period) =======
+// Fasta poster (och skuldernas stående belopp) antas som standard betalda med sitt budgetbelopp
+// varje period (mjuk modell). Men varje period kan man BEKRÄFTA (för spårbarhet), PAUSA (0 den
+// månaden) eller ÄNDRA beloppet (betala extra/mindre). Status lagras per period+underkategori;
+// avsaknad = "väntar" (räknas ändå som betald med budgetbeloppet).
+const FIXED_STATUS_KEY='fixed-status-v1';
+let fixedStatus={}; // {periodKey:{subcatId:{status:'confirmed'|'paused', amount:number|null}}}
+function loadFixedStatus(){
+  try{fixedStatus=JSON.parse(localStorage.getItem(FIXED_STATUS_KEY)||'{}')}catch(e){fixedStatus={}}
+}
+function saveFixedStatus(){localStorage.setItem(FIXED_STATUS_KEY,JSON.stringify(fixedStatus))}
+function fixedStatusOf(period,subcatId){
+  const s=fixedStatus[period]&&fixedStatus[period][subcatId];
+  return s?s.status:'pending';
+}
+// Vad den fasta posten faktiskt räknas som den perioden (budget om ej rörd, 0 om pausad,
+// annat om ändrad).
+function fixedEffectiveAmount(period,subcatId){
+  const s=fixedStatus[period]&&fixedStatus[period][subcatId];
+  if(!s)return budget[subcatId]||0;
+  if(s.status==='paused')return 0;
+  return s.amount!=null?s.amount:(budget[subcatId]||0);
+}
+function setFixedStatus(period,subcatId,status,amount){
+  if(!fixedStatus[period])fixedStatus[period]={};
+  if(status==='pending'){delete fixedStatus[period][subcatId];if(!Object.keys(fixedStatus[period]).length)delete fixedStatus[period];}
+  else fixedStatus[period][subcatId]={status,amount:amount!=null?amount:null};
+  saveFixedStatus();
+}
+// Alla poster som ska bekräftas/pausas: fasta underkategorier + skuldernas kopplade kategorier.
+function confirmableSubcats(){
+  const debtIds=debtSubcatIdSet();
+  const out=[];
+  cats.forEach(cat=>cat.subcats.forEach(sc=>{
+    if(sc.type==='fixed'||debtIds.has(sc.id))out.push({...sc,catColor:cat.color,catLabel:cat.label,isDebt:debtIds.has(sc.id)});
+  }));
+  return out;
+}
 function reconcileData(key){
   const income=periodIncome(key);
   const debtIds=debtSubcatIdSet();
-  // Fasta kostnader = budget för alla fasta underkategorier (antas betalda).
+  // Fasta kostnader = effektivt belopp per period (budget, 0 om pausad, eller ändrat belopp).
   let fasta=0;
-  cats.forEach(cat=>cat.subcats.forEach(sc=>{if(sc.type==='fixed')fasta+=(budget[sc.id]||0)}));
-  // Skulder = budget (stående månadsbelopp) för skuldkopplade kategorier (variabla, antas betalda).
+  cats.forEach(cat=>cat.subcats.forEach(sc=>{if(sc.type==='fixed')fasta+=fixedEffectiveAmount(key,sc.id)}));
+  // Skulder = effektivt stående belopp för skuldkopplade kategorier (samma bekräfta/pausa-logik).
   let skulder=0;
-  debtIds.forEach(id=>{skulder+=(budget[id]||0)});
+  debtIds.forEach(id=>{skulder+=fixedEffectiveAmount(key,id)});
   // Rörliga = faktiskt loggade köp (manuellt + import) på alla icke-fasta kategorier, PLUS
   // extra insättningar loggade på fasta-som-visas-i-loggen (t.ex. resekassa). Fångar även
   // EXTRA skuldinbetalningar (de loggas), men INTE den stående posten (den ligger i "skulder"
@@ -1124,9 +1179,11 @@ function debtSim(debt){
   let extraInWindow=0;
   completed.forEach(p=>{
     const e=debtExtraInPeriod(debt,p);
+    // Stående inbetalning för perioden = effektivt belopp (budget, 0 om pausad, eller ändrat).
+    const standing=debt.subcatId?fixedEffectiveAmount(p,debt.subcatId):monthly;
     extraInWindow+=e;
     bal+=bal*monthlyRate;                    // ränta på aktuellt saldo
-    bal=Math.max(0,bal-(monthly+e));         // periodens inbetalning (stående + extra)
+    bal=Math.max(0,bal-(standing+e));        // periodens inbetalning (stående + extra)
   });
   // Extra som loggats i perioder efter startKey som ännu inte avslutats (pågående) — dras av
   // direkt utan ny räntecykel så pengar man just betalat syns i baren. Perioder FÖRE startKey
@@ -1536,9 +1593,73 @@ function renderBudget(){
 // ======= LOGG TAB =======
 // Bygger kategorilistan för EN given period-nyckel — återanvänds för alla tre
 // paneler (föregående/nuvarande/nästa) i swipe-tracket nedan.
+// Sektion överst i Logg: fasta poster + skulder att bekräfta/pausa/ändra för perioden.
+function buildFixedSectionHTML(key){
+  const items=confirmableSubcats();
+  if(!items.length)return '';
+  let rows='';
+  items.forEach(sc=>{
+    const st=fixedStatusOf(key,sc.id);
+    const amt=fixedEffectiveAmount(key,sc.id);
+    const budgeted=budget[sc.id]||0;
+    let statusHTML,valStyle='';
+    if(st==='paused'){statusHTML='<span style="color:var(--text2)">Pausad denna månad</span>';valStyle='color:var(--text2);text-decoration:line-through';}
+    else if(st==='confirmed'){
+      const changed=amt!==budgeted;
+      statusHTML=`<span style="color:var(--green)">✓ Bekräftad${changed?' · ändrat belopp':''}</span>`;
+    }else{
+      statusHTML='<span style="color:var(--text2)">Antas betald · tryck för att bekräfta</span>';
+    }
+    rows+=`<div class="row editable" onclick="openFixedAction('${key}','${sc.id}')">
+      <span class="row-dot" style="background:${sc.catColor}"></span>
+      <span class="row-label">${sc.label}${sc.isDebt?' <span style="font-size:10px;color:var(--text2)">(skuld)</span>':''}<small>${statusHTML}</small></span>
+      <span class="row-value" style="${valStyle}">${fmt(amt)} kr</span>
+    </div>`;
+  });
+  return `<div class="section"><div class="section-label">Fasta poster & skulder</div><div class="card">${rows}</div></div>`;
+}
+let fixedCtx=null; // {key, subcatId}
+function openFixedAction(key,subcatId){
+  fixedCtx={key,subcatId};
+  const meta=subcatMeta(subcatId);
+  const st=fixedStatusOf(key,subcatId);
+  const budgeted=budget[subcatId]||0;
+  document.getElementById('fixed-title').textContent=(meta?meta.label:'Fast post')+' · '+keyLabel(key);
+  let note=`Standardbelopp: ${fmt(budgeted)} kr/mån. Bekräfta för att spåra i loggen, ändra beloppet för att betala extra/mindre, eller pausa den här månaden.`;
+  document.getElementById('fixed-note').textContent=note;
+  const cur=fixedEffectiveAmount(key,subcatId);
+  document.getElementById('fixed-amount').value=(st==='paused')?'':cur;
+  document.getElementById('fixed-reset-btn').style.display=(st!=='pending')?'block':'none';
+  openOverlay('fixed-overlay');
+}
+function closeFixedOverlay(e){
+  if(!e||e.target===document.getElementById('fixed-overlay')){closeOverlay('fixed-overlay');fixedCtx=null;}
+}
+function confirmFixed(){
+  if(!fixedCtx)return;
+  const budgeted=budget[fixedCtx.subcatId]||0;
+  const val=parseInt(document.getElementById('fixed-amount').value);
+  const amount=isNaN(val)?budgeted:val;
+  // Om beloppet = budget lagrar vi amount:null (bekräftad på standard), annars det ändrade.
+  setFixedStatus(fixedCtx.key,fixedCtx.subcatId,'confirmed',amount===budgeted?null:amount);
+  closeOverlay('fixed-overlay');fixedCtx=null;
+  renderLogg();
+}
+function pauseFixed(){
+  if(!fixedCtx)return;
+  setFixedStatus(fixedCtx.key,fixedCtx.subcatId,'paused',null);
+  closeOverlay('fixed-overlay');fixedCtx=null;
+  renderLogg();
+}
+function resetFixed(){
+  if(!fixedCtx)return;
+  setFixedStatus(fixedCtx.key,fixedCtx.subcatId,'pending',null);
+  closeOverlay('fixed-overlay');fixedCtx=null;
+  renderLogg();
+}
 function buildLogPaneHTML(key){
   const entry=log[key]||{};
-  let html='';
+  let html=buildFixedSectionHTML(key);
   cats.forEach(cat=>{
     const sub=cat.subcats.filter(s=>showsInLog(s));
     if(!sub.length)return;
@@ -2317,8 +2438,8 @@ function computeDonutData(key){
       // Fast post = budgetbelopp (+ ev. extra om den visas i loggen). Skuld = stående
       // månadsbelopp (budget) + ev. extra inbetalningar. Vanlig variabel = faktiskt loggat.
       let amount;
-      if(sc.type==='fixed')amount=(budget[sc.id]||0)+(sc.showInLog?logged:0);
-      else if(debtIds.has(sc.id))amount=(budget[sc.id]||0)+logged;
+      if(sc.type==='fixed')amount=fixedEffectiveAmount(key,sc.id)+(sc.showInLog?logged:0);
+      else if(debtIds.has(sc.id))amount=fixedEffectiveAmount(key,sc.id)+logged;
       else amount=logged;
       if(amount<=0)return;
       catSum+=amount;
@@ -3065,6 +3186,7 @@ loadTransactions();
 loadCustomRules();
 loadDebts();
 loadAccount();
+loadFixedStatus();
 const now=new Date();
 document.getElementById('b-month-label').textContent=MONTHS_FULL[now.getMonth()]+' '+now.getFullYear();
 if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
