@@ -313,7 +313,7 @@
   <div class="log-summary">
     <div class="sum-item"><div class="sum-item-label">Utfall</div><div class="sum-item-val" id="log-total">0 kr</div></div>
     <div class="sum-item"><div class="sum-item-label">Budget</div><div class="sum-item-val" id="log-budget-total">0 kr</div></div>
-    <div class="sum-item"><div class="sum-item-label">Differens</div><div class="sum-item-val" id="log-diff">0 kr</div></div>
+    <div class="sum-item"><div class="sum-item-label">Kvar</div><div class="sum-item-val" id="log-diff">0 kr</div></div>
   </div>
   <div id="log-income-row" style="margin:-.35rem 1.25rem .6rem;text-align:center;font-size:12px;color:var(--text2);cursor:pointer;-webkit-tap-highlight-color:transparent" onclick="openLogIncome()"></div>
   <div style="margin:-.25rem 1.25rem .6rem;text-align:center;font-size:13px;color:var(--accent);cursor:pointer;-webkit-tap-highlight-color:transparent" onclick="openDonut()">Fördelning av lönen ›</div>
@@ -1099,21 +1099,9 @@ function confirmableSubcats(){
 }
 function reconcileData(key){
   const income=periodIncome(key);
-  const debtIds=debtSubcatIdSet();
-  // Fasta kostnader = effektivt belopp per period (budget, 0 om pausad, eller ändrat belopp).
-  let fasta=0;
-  cats.forEach(cat=>cat.subcats.forEach(sc=>{if(sc.type==='fixed')fasta+=fixedEffectiveAmount(key,sc.id)}));
-  // Skulder = effektivt stående belopp för skuldkopplade kategorier (samma bekräfta/pausa-logik).
-  let skulder=0;
-  debtIds.forEach(id=>{skulder+=fixedEffectiveAmount(key,id)});
-  // Rörliga = faktiskt loggade köp (manuellt + import) på alla icke-fasta kategorier, PLUS
-  // extra insättningar loggade på fasta-som-visas-i-loggen (t.ex. resekassa). Fångar även
-  // EXTRA skuldinbetalningar (de loggas), men INTE den stående posten (den ligger i "skulder"
-  // resp. "fasta" ovan via budget), så inget dubbelräknas.
-  let rorliga=0;
-  cats.forEach(cat=>cat.subcats.forEach(sc=>{
-    if(sc.type!=='fixed'||sc.showInLog)rorliga+=((log[key]?.[sc.id]||0)+getImportedSum(key,sc.id));
-  }));
+  const fasta=fixedTotalEff(key);
+  const skulder=debtStandingTotalEff(key);
+  const rorliga=periodLoggedOutflow(key);
   const outflow=fasta+skulder+rorliga;
   const bal=accountBalances[key]||{};
   // Varje period är fristående — ingående saldo ärvs ALDRIG från förra perioden (Oskar för
@@ -1304,14 +1292,22 @@ function availableForVariable(){
   const fixedTotal=cats.flatMap(c=>c.subcats).filter(s=>s.type==='fixed').reduce((s,sc)=>s+(budget[sc.id]||0),0);
   return (budget.income||0)-fixedTotal;
 }
-// Som availableForVariable(), men med periodens faktiska lön (log[key].income) om den loggats —
-// för den som har olika lön olika månader. Nyckeln 'income' krockar inte med subcat-id:n
-// (samma specialnyckel som redan används i budget-objektet).
+// ---- Delade summeringar (används av BÅDE Logg-headern och Konto-avstämningen, så de alltid
+// stämmer överens). Alla använder EFFEKTIVA belopp, dvs respekterar bekräfta/pausa/ändra. ----
+function fixedTotalEff(key){let s=0;cats.forEach(c=>c.subcats.forEach(sc=>{if(sc.type==='fixed')s+=fixedEffectiveAmount(key,sc.id)}));return s;}
+function debtStandingTotalEff(key){let s=0;debtSubcatIdSet().forEach(id=>{s+=fixedEffectiveAmount(key,id)});return s;}
+// Faktiskt loggade utflöden (rörliga köp + extra skuldinbetalningar + extra insättningar på
+// fasta-som-visas). Fasta/skulders STÅENDE belopp ligger inte här (de är committed nedan).
+function periodLoggedOutflow(key){
+  let s=0;
+  cats.forEach(c=>c.subcats.forEach(sc=>{if(sc.type!=='fixed'||sc.showInLog)s+=((log[key]?.[sc.id]||0)+getImportedSum(key,sc.id))}));
+  return s;
+}
+// Variabel budget = periodens lön MINUS fasta kostnader MINUS skuldernas stående belopp.
+// Tidigare drogs inte skuldernas stående belopp av — det gjorde budget/differens ca ett
+// skuldmånadsbelopp för hög (t.ex. 2210 kr för CSN), vilket var felet mot bankkontot.
 function periodVariableBudget(key){
-  const inc=log[key]?.income;
-  if(inc==null) return availableForVariable();
-  const fixedTotal=cats.flatMap(c=>c.subcats).filter(s=>s.type==='fixed').reduce((s,sc)=>s+(budget[sc.id]||0),0);
-  return inc-fixedTotal;
+  return periodIncome(key)-fixedTotalEff(key)-debtStandingTotalEff(key);
 }
 function getSubcat(catId,subcatId){return getCat(catId)?.subcats.find(s=>s.id===subcatId)}
 function typeLabel(t){return t==='fixed'?'Fast':t==='variable'?'Variabel':'Enbart logg'}
@@ -1602,6 +1598,7 @@ function buildFixedSectionHTML(key){
     const st=fixedStatusOf(key,sc.id);
     const amt=fixedEffectiveAmount(key,sc.id);
     const budgeted=budget[sc.id]||0;
+    const extras=(log[key]?.[sc.id]||0)+getImportedSum(key,sc.id);
     let statusHTML,valStyle='';
     if(st==='paused'){statusHTML='<span style="color:var(--text2)">Pausad denna månad</span>';valStyle='color:var(--text2);text-decoration:line-through';}
     else if(st==='confirmed'){
@@ -1610,6 +1607,7 @@ function buildFixedSectionHTML(key){
     }else{
       statusHTML='<span style="color:var(--text2)">Antas betald · tryck för att bekräfta</span>';
     }
+    if(extras>0)statusHTML+=` · <span style="color:var(--accent)">+${fmt(extras)} kr extra loggat</span>`;
     rows+=`<div class="row editable" onclick="openFixedAction('${key}','${sc.id}')">
       <span class="row-dot" style="background:${sc.catColor}"></span>
       <span class="row-label">${sc.label}${sc.isDebt?' <span style="font-size:10px;color:var(--text2)">(skuld)</span>':''}<small>${statusHTML}</small></span>
@@ -1659,9 +1657,12 @@ function resetFixed(){
 }
 function buildLogPaneHTML(key){
   const entry=log[key]||{};
+  const debtIds=debtSubcatIdSet();
   let html=buildFixedSectionHTML(key);
   cats.forEach(cat=>{
-    const sub=cat.subcats.filter(s=>showsInLog(s));
+    // Vanliga panelen visar bara rörliga/enbart-logg-kategorier som INTE är skulder och INTE
+    // fasta-som-visas — de ligger i "Fasta poster & skulder"-sektionen ovan (annars dubbelt).
+    const sub=cat.subcats.filter(s=>s.type!=='fixed'&&!debtIds.has(s.id));
     if(!sub.length)return;
     html+=`<div class="section"><div class="section-label">${cat.label}</div><div class="card">`;
     sub.forEach(sc=>{
@@ -1706,10 +1707,9 @@ function renderLogHeader(){
   const isLogged=isPeriodLogged(currentLogMonth);
   const isOngoing=!periodComplete(currentLogMonth);
   const atNavEnd=currentLogMonth===ongoingLogPeriodKey();
-  const logSubs=getLogSubcats();
   const logBudgetTotal=periodVariableBudget(currentLogMonth);
-  const logTotal=logSubs.reduce((s,c)=>s+(entry[c.id]||0)+getImportedSum(currentLogMonth,c.id),0);
-  const diff=logTotal-logBudgetTotal;
+  const logTotal=periodLoggedOutflow(currentLogMonth);
+  const diff=logBudgetTotal-logTotal; // kvar av den rörliga budgeten (positivt = pengar kvar)
 
   document.getElementById('log-month-label').textContent=keyLabel(currentLogMonth);
   document.getElementById('log-period-sub').textContent=periodLabel(currentLogMonth);
@@ -1726,7 +1726,7 @@ function renderLogHeader(){
   document.getElementById('log-budget-total').textContent=fmt(logBudgetTotal)+' kr';
   const dEl=document.getElementById('log-diff');
   dEl.textContent=(diff>=0?'+':'')+fmt(diff)+' kr';
-  dEl.className='sum-item-val '+(diff<=0?'diff-ok':'diff-over');
+  dEl.className='sum-item-val '+(diff>=0?'diff-ok':'diff-over');
 
   const unknownCount=(transactions[currentLogMonth]||[]).filter(t=>!t.subcatId).length;
   const ulEl=document.getElementById('log-unknown-link');
