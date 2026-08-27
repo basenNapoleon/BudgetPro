@@ -1078,14 +1078,42 @@ function fixedStatusOf(period,subcatId){
 // annat om ändrad).
 function fixedEffectiveAmount(period,subcatId){
   const s=fixedStatus[period]&&fixedStatus[period][subcatId];
-  if(!s)return budget[subcatId]||0;
-  if(s.status==='paused')return 0;
-  return s.amount!=null?s.amount:(budget[subcatId]||0);
+  if(!s)return budget[subcatId]||0;         // väntar → antas betald med budgetbeloppet
+  if(s.status==='paused')return 0;           // pausad → 0 den månaden
+  // Bekräftad → beloppet från den riktiga raden i loggen (fallback till budget om raden
+  // rensats av 12-månadersgränsen).
+  const tx=fixedTxSum(period,subcatId);
+  return tx>0?tx:(budget[subcatId]||0);
+}
+// Skapar/uppdaterar/tar bort den riktiga loggraden (fixed:true) för en fast post/skuld i en
+// period, så att "vad du ser är vad som räknas" — bekräftar du en post dyker den upp som en
+// faktisk transaktion daterad på lönedagen (periodstart).
+function syncFixedTx(period,subcatId,amount){
+  if(!transactions[period])transactions[period]=[];
+  transactions[period]=transactions[period].filter(t=>!(t.fixed&&t.subcatId===subcatId));
+  if(amount!=null&&amount>0){
+    const meta=subcatMeta(subcatId);
+    const {firstDay}=periodBounds(period);
+    const dateISO=toKey(firstDay)+'-'+String(firstDay.getDate()).padStart(2,'0');
+    transactions[period].push({id:uid(),dateISO,amount:-Math.abs(amount),rubrik:(meta?meta.label:'Fast post'),subcatId,fixed:true});
+  }
+  if(!transactions[period].length)delete transactions[period];
+  saveTransactions();
 }
 function setFixedStatus(period,subcatId,status,amount){
   if(!fixedStatus[period])fixedStatus[period]={};
-  if(status==='pending'){delete fixedStatus[period][subcatId];if(!Object.keys(fixedStatus[period]).length)delete fixedStatus[period];}
-  else fixedStatus[period][subcatId]={status,amount:amount!=null?amount:null};
+  if(status==='pending'){
+    delete fixedStatus[period][subcatId];
+    if(!Object.keys(fixedStatus[period]).length)delete fixedStatus[period];
+    syncFixedTx(period,subcatId,null); // ingen rad när posten bara "antas betald"
+  }else if(status==='paused'){
+    fixedStatus[period][subcatId]={status,amount:null};
+    syncFixedTx(period,subcatId,null); // pausad → ingen rad, 0 kr
+  }else{ // confirmed
+    const amt=amount!=null?amount:(budget[subcatId]||0);
+    fixedStatus[period][subcatId]={status,amount:amount!=null?amount:null};
+    syncFixedTx(period,subcatId,amt);  // skapar den riktiga loggraden
+  }
   saveFixedStatus();
 }
 // Alla poster som ska bekräftas/pausas: fasta underkategorier + skuldernas kopplade kategorier.
@@ -1320,7 +1348,14 @@ function subcatMeta(id){
 }
 function getImportedSum(period,subcatId){
   const list=transactions[period]||[];
-  return list.filter(t=>t.subcatId===subcatId).reduce((s,t)=>s+(-t.amount),0);
+  // Fasta/skuld-BETALNINGAR (flaggade fixed:true) räknas via fixedEffectiveAmount, inte här —
+  // annars skulle de dubbelräknas som "extra". Här summeras bara riktiga köp/extra.
+  return list.filter(t=>t.subcatId===subcatId&&!t.fixed).reduce((s,t)=>s+(-t.amount),0);
+}
+// Summan av fasta/skuld-betalningsrader (fixed:true) för en post i en period.
+function fixedTxSum(period,subcatId){
+  const list=transactions[period]||[];
+  return list.filter(t=>t.subcatId===subcatId&&t.fixed).reduce((s,t)=>s+(-t.amount),0);
 }
 // En period räknas som "loggad" om den har manuella inmatningar ELLER importerade
 // transaktioner — tidigare kollades bara log[key], så en period som bara loggats
@@ -2207,6 +2242,7 @@ function topCategoriesLastWeek(limit){
   const sums={};
   allTransactionsFlat().forEach(t=>{
     if(t.amount>=0)return; // bara utgifter
+    if(t.fixed)return;     // fasta/skuld-betalningar ingår inte i "störst rörliga senaste 7 dagarna"
     if(t.dateISO<cutoffKey)return;
     const key=t.subcatId||'__unknown';
     sums[key]=(sums[key]||0)+(-t.amount);
