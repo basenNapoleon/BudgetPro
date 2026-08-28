@@ -188,6 +188,20 @@
     .debt-btn-icons{display:flex;gap:0;flex-shrink:0}
     .debt-pct{font-weight:600;color:var(--green)}
 
+    /* Guide */
+    .guide-overlay{position:fixed;inset:0;background:var(--bg);z-index:200;overflow-y:auto;-webkit-overflow-scrolling:touch;display:none;flex-direction:column}
+    .guide-overlay.active{display:flex}
+    .guide-head{position:sticky;top:0;background:var(--bg);padding:calc(var(--safe-top) + 1rem) 1.25rem .8rem;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);z-index:1}
+    .guide-head-title{font-size:19px;font-weight:700}
+    .guide-close{background:var(--card);border:1px solid var(--border);border-radius:10px;width:34px;height:34px;font-size:18px;cursor:pointer;color:var(--text);-webkit-tap-highlight-color:transparent;font-family:inherit}
+    .guide-body{padding:1rem 1.25rem calc(var(--safe-bottom) + 2rem)}
+    .guide-sec{margin-bottom:1.4rem}
+    .guide-sec h3{font-size:15px;font-weight:700;margin:0 0 .35rem;display:flex;align-items:center;gap:.4rem}
+    .guide-sec p{font-size:14px;line-height:1.55;color:var(--text);margin:0 0 .4rem}
+    .guide-sec .tip{font-size:13px;color:var(--text2);line-height:1.5}
+    .guide-lead{font-size:14px;line-height:1.6;color:var(--text);margin:0 0 1.2rem}
+    .guide-done{margin:.5rem 0 0;width:100%}
+
     /* Konto & mörkertal (avstämning + våg) */
     .recon-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:1rem 1.1rem;margin:0 1.25rem 1rem}
     .recon-scale{display:flex;align-items:flex-end;gap:.6rem;height:64px;margin:.6rem 0 .3rem}
@@ -362,6 +376,14 @@
 
   <!-- Sub-view: category list -->
   <div class="settings-sub active" id="settings-list">
+    <div class="section">
+      <div class="card">
+        <div class="row editable" onclick="openGuide()">
+          <span class="row-label">📖 Så funkar appen<small>Guide — bra att läsa först</small></span>
+          <span class="row-chevron">›</span>
+        </div>
+      </div>
+    </div>
     <div class="section">
       <div class="section-label">Kategorier</div>
       <div id="cats-list-card" class="card"></div>
@@ -688,6 +710,62 @@
       <div style="width:56px"></div>
     </div>
     <div class="import-list" id="recent-list"></div>
+  </div>
+</div>
+
+<!-- GUIDE -->
+<div class="guide-overlay" id="guide-overlay">
+  <div class="guide-head">
+    <span class="guide-head-title">Så funkar Budget Pro</span>
+    <button class="guide-close" onclick="closeGuide()">✕</button>
+  </div>
+  <div class="guide-body">
+    <p class="guide-lead">En personlig budget-app där du ser exakt vart pengarna tar vägen. Allt sparas bara på din telefon. Här är det viktigaste för att komma igång.</p>
+
+    <div class="guide-sec">
+      <h3>📅 Perioder följer lönen</h3>
+      <p>En "månad" i appen går från lönedag till lönedag — som standard den 25:e. Ett köp den 25:e eller senare tillhör alltså nästa period.</p>
+      <p class="tip">Kom lönen en annan dag? Tryck på datumraden överst i Logg och ändra startdagen för just den perioden.</p>
+    </div>
+
+    <div class="guide-sec">
+      <h3>➕ Logga i vardagen</h3>
+      <p>Plusknappen nere till höger i Logg-fliken är hjärtat i appen. Köpte du en öl? Tryck plus, välj kategori, skriv beloppet. Du kan även logga en inkomst/återbetalning och backdatera några dagar.</p>
+      <p class="tip">Saknas en kategori? Skapa den direkt i plus-rutan.</p>
+    </div>
+
+    <div class="guide-sec">
+      <h3>💡 Budget-fliken</h3>
+      <p>Sätt din månadslön och hur mycket du vill lägga på varje kategori. Det ger dig en plan — "rörligt utrymme" är vad som blir kvar till vardagsköp när fasta kostnader och skulder är avdragna.</p>
+    </div>
+
+    <div class="guide-sec">
+      <h3>✓ Fasta poster & skulder</h3>
+      <p>Överst i Logg listas dina fasta kostnader (hyra, sparande…) och skulder. Varje månad kan du <b>bekräfta</b> (skapar en synlig rad i loggen), <b>pausa</b> (0 kr den månaden) eller <b>ändra beloppet</b>. Rör du inget antas de betalda enligt budget.</p>
+      <p class="tip">Poängen: vad du ser är vad som räknas — inget smyger iväg i bakgrunden.</p>
+    </div>
+
+    <div class="guide-sec">
+      <h3>💳 Skulder med ränta</h3>
+      <p>Lägg till lån och avbetalningar under Skulder-fliken. Fyll i totalbelopp, månadsbelopp och ev. ränta, så räknar appen ut hur mycket som faktiskt betalas av (ränta äts inte upp av misstag) och när du är skuldfri. Stäm av mot din riktiga skuld när du vill.</p>
+    </div>
+
+    <div class="guide-sec">
+      <h3>📥 Importera historik (CSV)</h3>
+      <p>Vill du fylla på graferna bakåt kan du importera ett kontoutdrag från Nordea eller Sparbanken/Swedbank. Appen kategoriserar automatiskt och lär sig efterhand. CSV är mest ett engångsverktyg — i vardagen loggar du manuellt.</p>
+    </div>
+
+    <div class="guide-sec">
+      <h3>📊 Analys: förstå läget</h3>
+      <p>Här ser du trender över tid och en donut som visar hur lönen fördelas. Längst upp finns <b>Konto & mörkertal</b>: skriv in vad du faktiskt har på kontot, så visar appen om det stämmer med vad den räknat ut — skiljer det sig har du troligen glömt logga något.</p>
+    </div>
+
+    <div class="guide-sec">
+      <h3>⚙️ Inställningar</h3>
+      <p>Lägg till, döp om eller ta bort kategorier. En fast post kan få "visa i logg" om du vill kunna logga extra på den (t.ex. en resekassa med både fast spar och extra insättningar).</p>
+    </div>
+
+    <button class="modal-btn guide-done" onclick="closeGuide()">Nu kör vi!</button>
   </div>
 </div>
 
@@ -3211,6 +3289,14 @@ document.getElementById('num-input').addEventListener('keydown',e=>{if(e.key==='
 document.getElementById('payday-input').addEventListener('keydown',e=>{if(e.key==='Enter')savePayday()});
 document.getElementById('text-input').addEventListener('keydown',e=>{if(e.key==='Enter')saveTextModal()});
 
+// ======= GUIDE =======
+const GUIDE_SEEN_KEY='guide-seen-v1';
+function openGuide(){document.getElementById('guide-overlay').classList.add('active');}
+function closeGuide(){
+  document.getElementById('guide-overlay').classList.remove('active');
+  try{localStorage.setItem(GUIDE_SEEN_KEY,'1')}catch(e){}
+}
+
 // ======= BOOT =======
 // Blockera pinch-zoom (iOS-specifik gest-händelse) — viewport-metan täcker det mesta i
 // hemskärmsläge, men detta fångar resten. Auto-zoom vid inputfokus löses separat genom
@@ -3222,11 +3308,12 @@ loadTransactions();
 loadCustomRules();
 loadDebts();
 loadAccount();
-loadFixedStatus();
-const now=new Date();
+loadFixedStatus();const now=new Date();
 document.getElementById('b-month-label').textContent=MONTHS_FULL[now.getMonth()]+' '+now.getFullYear();
 if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 showPage('logg'); // Logg är startsidan — man loggar oftast, slipper en knapptryckning
+// Visa guiden automatiskt första gången appen öppnas (bra för nya användare/kompisar).
+try{if(!localStorage.getItem(GUIDE_SEEN_KEY))setTimeout(openGuide,400)}catch(e){}
 </script>
 </body>
 </html>
