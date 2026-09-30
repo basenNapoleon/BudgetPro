@@ -18,10 +18,10 @@
       --red:#C0392B;--red-bg:#FDECEA;--accent:#4F46E5;--nav-h:60px;
       --safe-top:env(safe-area-inset-top,0px);--safe-bottom:env(safe-area-inset-bottom,0px);
     }
-    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);height:100dvh;overflow:hidden;touch-action:manipulation}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);height:100dvh;overflow:hidden;touch-action:manipulation;overscroll-behavior:none}
 
     /* Pages */
-    .page{display:none;position:absolute;inset:0;bottom:calc(var(--nav-h) + var(--safe-bottom));overflow-y:auto;-webkit-overflow-scrolling:touch}
+    .page{display:none;position:absolute;inset:0;bottom:calc(var(--nav-h) + var(--safe-bottom));overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
     .page.active{display:block}
     .page-header{display:flex;align-items:baseline;justify-content:space-between;padding:calc(var(--safe-top) + 1rem) 1.25rem .75rem;position:sticky;top:0;background:var(--bg);z-index:5}
     .app-title{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text2)}
@@ -96,7 +96,7 @@
     #page-logg.active{display:flex}
     .log-viewport{flex:1 1 auto;position:relative;overflow:hidden}
     .log-track{display:flex;width:300%;height:100%;transform:translateX(-33.3333%)}
-    .log-pane{width:33.3333%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch}
+    .log-pane{width:33.3333%;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
 
     /* Analys */
     .analys-toggle-wrap{display:flex;margin:0 1.25rem 1rem;gap:.5rem}
@@ -243,7 +243,7 @@
     .import-header-title{text-align:center;flex:1}
     .import-title{font-size:15px;font-weight:700}
     .import-subtitle{font-size:11px;color:var(--text2);margin-top:1px}
-    .import-list{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch}
+    .import-list{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
     .import-group-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text2);padding:1rem 1.25rem .4rem}
     .import-group-note{font-size:12px;color:var(--text2);padding:0 1.25rem .6rem;line-height:1.4}
     .import-row{display:flex;align-items:flex-start;gap:.6rem;padding:.65rem 1.25rem;border-bottom:1px solid var(--border);background:var(--card)}
@@ -381,6 +381,14 @@
       <div class="card">
         <div class="row editable" onclick="openGuide()">
           <span class="row-label">📖 Så funkar appen<small>Guide — bra att läsa först</small></span>
+          <span class="row-chevron">›</span>
+        </div>
+        <div class="row editable" onclick="openExportData()">
+          <span class="row-label">📤 Exportera / säkerhetskopiera data<small>Kopiera all data (t.ex. för felsökning eller backup)</small></span>
+          <span class="row-chevron">›</span>
+        </div>
+        <div class="row editable" onclick="openImportData()">
+          <span class="row-label">📥 Importera data<small>Klistra in tidigare export — skriver över allt</small></span>
           <span class="row-chevron">›</span>
         </div>
       </div>
@@ -749,6 +757,30 @@
       <div style="width:56px"></div>
     </div>
     <div class="import-list" id="recent-list"></div>
+  </div>
+</div>
+
+<!-- MODAL: exportera data -->
+<div class="overlay" id="export-overlay" onclick="if(event.target===this)closeOverlay('export-overlay')">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Exportera data</div>
+    <div class="num-imported-note" style="display:block">All appdata nedan. Tryck <b>Kopiera</b> och klistra in där du vill spara den (eller skicka till mig för felsökning).</div>
+    <textarea id="export-text" readonly style="width:100%;height:160px;font-size:12px;font-family:monospace;border:1px solid var(--border);border-radius:12px;padding:.6rem;background:var(--bg);color:var(--text);-webkit-user-select:text;user-select:text"></textarea>
+    <button class="modal-btn" style="margin-top:.6rem" onclick="copyExportData()">Kopiera</button>
+    <button class="cancel-btn" onclick="closeOverlay('export-overlay')">Stäng</button>
+  </div>
+</div>
+
+<!-- MODAL: importera data -->
+<div class="overlay" id="import-data-overlay" onclick="if(event.target===this)closeOverlay('import-data-overlay')">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Importera data</div>
+    <div class="num-imported-note" style="display:block;color:var(--red)">Skriver över ALL nuvarande data i appen. Exportera först om du vill ha en backup.</div>
+    <textarea id="import-text" placeholder="Klistra in exporterad data här..." style="width:100%;height:160px;font-size:12px;font-family:monospace;border:1px solid var(--border);border-radius:12px;padding:.6rem;background:var(--bg);color:var(--text)"></textarea>
+    <button class="modal-btn" style="margin-top:.6rem;background:var(--red)" onclick="applyImportData()">Skriv över och ladda om</button>
+    <button class="cancel-btn" onclick="closeOverlay('import-data-overlay')">Avbryt</button>
   </div>
 </div>
 
@@ -3546,6 +3578,43 @@ document.getElementById('text-input').addEventListener('keydown',e=>{if(e.key===
 
 // ======= GUIDE =======
 const GUIDE_SEEN_KEY='guide-seen-v1';
+// ======= EXPORTERA / IMPORTERA ALL DATA (backup + felsökning) =======
+// Samlar ALLA localStorage-nycklar så inget missas oavsett vilka funktioner som använts.
+function collectAllData(){
+  const out={};
+  for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);out[k]=localStorage.getItem(k);}
+  return out;
+}
+function openExportData(){
+  const data={_app:'budget-pro',_exported:todayISO(),data:collectAllData()};
+  document.getElementById('export-text').value=JSON.stringify(data);
+  openOverlay('export-overlay');
+}
+function copyExportData(){
+  const ta=document.getElementById('export-text');
+  ta.focus();ta.select();ta.setSelectionRange(0,ta.value.length);
+  let ok=false;
+  try{ok=document.execCommand('copy');}catch(e){}
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(ta.value).then(()=>{},()=>{});ok=true;
+  }
+  alert(ok?'Kopierat! Klistra in där du vill.':'Kunde inte kopiera automatiskt — markera texten och kopiera manuellt.');
+}
+function openImportData(){document.getElementById('import-text').value='';openOverlay('import-data-overlay');}
+function applyImportData(){
+  const raw=document.getElementById('import-text').value.trim();
+  if(!raw){alert('Klistra in data först.');return;}
+  let parsed;
+  try{parsed=JSON.parse(raw);}catch(e){alert('Ogiltig data — kunde inte läsa JSON.');return;}
+  const data=parsed&&parsed.data?parsed.data:parsed;
+  if(!data||typeof data!=='object'){alert('Ogiltig data.');return;}
+  if(!confirm('Skriv över ALL nuvarande data med den inklistrade? Detta går inte att ångra.'))return;
+  try{
+    localStorage.clear();
+    Object.keys(data).forEach(k=>localStorage.setItem(k,data[k]));
+    location.reload();
+  }catch(e){alert('Kunde inte importera: '+e.message);}
+}
 function openGuide(){document.getElementById('guide-overlay').classList.add('active');}
 function closeGuide(){
   document.getElementById('guide-overlay').classList.remove('active');
