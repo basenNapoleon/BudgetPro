@@ -315,6 +315,7 @@
     <button class="import-btn" style="flex:1;margin:0" onclick="openImportPicker()"><span>📂</span><span>Importera CSV</span></button>
     <button class="import-btn" style="width:48px;flex:none;margin:0;padding:0" onclick="confirmDeleteImport()" title="Radera import för perioden">🗑</button>
   </div>
+  <button class="import-btn" style="margin:0 1.25rem .75rem" onclick="openSubsManager()"><span>🔁</span><span id="subs-btn-label">Hantera prenumerationer</span></button>
   <div class="month-nav">
     <button class="month-nav-btn" onclick="changeLogMonth(-1)">‹</button>
     <div class="month-nav-center">
@@ -551,6 +552,41 @@
   </div>
 </div>
 
+<!-- MODAL: hantera prenumerationer (helskärm) -->
+<div class="overlay import-overlay" id="subs-overlay">
+  <div class="import-sheet">
+    <div class="import-header">
+      <button class="import-cancel" onclick="closeOverlay('subs-overlay')">Klart</button>
+      <div class="import-header-title">
+        <div class="import-title">Prenumerationer</div>
+        <div class="import-subtitle" id="subs-sub"></div>
+      </div>
+      <div style="width:56px"></div>
+    </div>
+    <div class="import-list" id="subs-list"></div>
+    <div class="import-footer">
+      <button class="modal-btn" onclick="openSubEdit(null)">+ Lägg till prenumeration</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: lägg till / redigera prenumeration -->
+<div class="overlay" id="subedit-overlay" onclick="closeSubEditOverlay(event)">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="subedit-title">Ny prenumeration</div>
+    <div class="modal-input-wrap">
+      <input class="text-input" id="subedit-name" type="text" placeholder="Namn (t.ex. Netflix)">
+    </div>
+    <div class="modal-input-wrap">
+      <input class="modal-input" id="subedit-amount" type="number" inputmode="numeric" placeholder="0">
+      <span class="modal-currency">kr/mån</span>
+    </div>
+    <button class="modal-btn" onclick="saveSubEdit()">Spara</button>
+    <button class="cancel-btn" id="subedit-remove" style="display:none;border-color:var(--red);color:var(--red)" onclick="removeSubFromEdit()">Ta bort helt</button>
+  </div>
+</div>
+
 <!-- MODAL: text input + type selector (subcat / category rename) -->
 <div class="overlay" id="text-overlay" onclick="closeTextOverlay(event)">
   <div class="modal">
@@ -572,8 +608,11 @@
       <span class="sugg-check" id="excludedonut-check"></span>
       <span class="sugg-label">Visa inte i donut<small>Håll utanför "Fördelning av lönen" — bra för stora engångsköp som annars dränker allt annat</small></span>
     </div>
+    <div id="subscription-row" class="sugg-row" style="display:none;border:1px solid var(--border);border-radius:12px;margin-bottom:1rem" onclick="toggleSubscription()">
+      <span class="sugg-check" id="subscription-check"></span>
+      <span class="sugg-label">Prenumeration<small>Måste bekräftas varje månad (räknas inte förrän du bekräftar), och kan sägas upp. Bra för Netflix, Spotify m.m.</small></span>
+    </div>
     <button class="modal-btn" onclick="saveTextModal()">Spara</button>
-  </div>
 </div>
 
 <!-- MODAL: delete confirmation -->
@@ -1154,14 +1193,196 @@ function fixedStatusOf(period,subcatId){
 }
 // Vad den fasta posten faktiskt räknas som den perioden (budget om ej rörd, 0 om pausad,
 // annat om ändrad).
+function getSubcatObj(subcatId){
+  for(const c of cats){const sc=c.subcats.find(s=>s.id===subcatId);if(sc)return sc;}
+  return null;
+}
+
+// ======= PRENUMERATIONER =======
+// En prenumeration är INTE en egen underkategori — det är en återkommande POST (namn + belopp)
+// under EN gemensam underkategori ("hinken"). Varje månad kan varje prenumeration bekräftas,
+// och blir då en riktig rad (transaktion) under den kategorin — precis som ett köp under
+// Dagligvaror. Pausa (en månad) och säg upp (stoppa framåt, behåll historik) finns.
+const SUBS_KEY='subs-v1', SUBS_STATUS_KEY='subs-status-v1', SUBS_BUCKET_KEY='subs-bucket-v1';
+let subscriptions=[];         // [{id,name,amount,cancelledFrom}]
+let subStatus={};             // {periodKey:{subId:'confirmed'|'paused'}}
+let subBucketId=null;         // underkategori-id som prenumerationsposterna hamnar under
+function loadSubs(){
+  try{subscriptions=JSON.parse(localStorage.getItem(SUBS_KEY)||'[]')}catch(e){subscriptions=[]}
+  try{subStatus=JSON.parse(localStorage.getItem(SUBS_STATUS_KEY)||'{}')}catch(e){subStatus={}}
+  subBucketId=localStorage.getItem(SUBS_BUCKET_KEY)||null;
+}
+function saveSubs(){localStorage.setItem(SUBS_KEY,JSON.stringify(subscriptions))}
+function saveSubStatus(){localStorage.setItem(SUBS_STATUS_KEY,JSON.stringify(subStatus))}
+// Skapar (vid behov) och returnerar underkategorin som alla prenumerationer bokförs under.
+function ensureSubBucket(){
+  if(subBucketId&&getSubcatObj(subBucketId))return subBucketId;
+  // Återanvänd befintlig kategori "Prenumerationer" om den finns, annars skapa en.
+  let cat=cats.find(c=>c.label.toLowerCase()==='prenumerationer');
+  if(!cat){cat={id:uid(),label:'Prenumerationer',color:nextColor(),subcats:[]};cats.push(cat);}
+  let sc=cat.subcats[0];
+  if(!sc){sc={id:uid(),label:'Prenumerationer',note:null,type:'variable'};cat.subcats.push(sc);}
+  subBucketId=sc.id;
+  localStorage.setItem(SUBS_BUCKET_KEY,subBucketId);
+  saveCats();
+  return subBucketId;
+}
+function subActiveForPeriod(sub,period){return !(sub.cancelledFrom&&period>=sub.cancelledFrom)}
+function subsForPeriod(period){return subscriptions.filter(s=>subActiveForPeriod(s,period))}
+function subStatusOf(period,subId){return (subStatus[period]&&subStatus[period][subId])||'pending'}
+function subCountToConfirm(period){return subsForPeriod(period).filter(s=>subStatusOf(period,s.id)==='pending').length}
+// Skapar/tar bort prenumerationsposten (transaktion, flaggad sub:true) för en period.
+function syncSubTx(period,subId,amount,name){
+  const bucket=ensureSubBucket();
+  if(!transactions[period])transactions[period]=[];
+  transactions[period]=transactions[period].filter(t=>!(t.sub&&t.subId===subId));
+  if(amount!=null&&amount>0){
+    const {firstDay}=periodBounds(period);
+    const dateISO=toKey(firstDay)+'-'+String(firstDay.getDate()).padStart(2,'0');
+    transactions[period].push({id:uid(),dateISO,amount:-Math.abs(amount),rubrik:name,subcatId:bucket,sub:true,subId});
+  }
+  if(!transactions[period].length)delete transactions[period];
+  saveTransactions();
+}
+function confirmSub(period,subId,amount){
+  const sub=subscriptions.find(s=>s.id===subId);if(!sub)return;
+  if(!subStatus[period])subStatus[period]={};
+  subStatus[period][subId]='confirmed';saveSubStatus();
+  syncSubTx(period,subId,amount!=null?amount:sub.amount,sub.name);
+}
+function pauseSub(period,subId){
+  if(!subStatus[period])subStatus[period]={};
+  subStatus[period][subId]='paused';saveSubStatus();
+  syncSubTx(period,subId,null);
+}
+function resetSub(period,subId){
+  if(subStatus[period]){delete subStatus[period][subId];if(!Object.keys(subStatus[period]).length)delete subStatus[period];saveSubStatus();}
+  syncSubTx(period,subId,null);
+}
+function cancelSub(subId,fromPeriod){const s=subscriptions.find(x=>x.id===subId);if(s){s.cancelledFrom=fromPeriod;saveSubs();}}
+function resumeSub(subId){const s=subscriptions.find(x=>x.id===subId);if(s){delete s.cancelledFrom;saveSubs();}}
+function addSub(name,amount){subscriptions.push({id:uid(),name,amount});saveSubs();}
+function removeSub(subId){
+  subscriptions=subscriptions.filter(s=>s.id!==subId);saveSubs();
+  // Ta bort ev. framtida/nuvarande oplacerade poster? Behåll historiska poster (redan bokförda).
+}
+
+// ---- Prenumerations-UI ----
+function updateSubsBtnLabel(){
+  const el=document.getElementById('subs-btn-label');
+  if(!el)return;
+  const key=currentLogMonth||ongoingLogPeriodKey();
+  const n=subCountToConfirm(key);
+  el.textContent=n?`Prenumerationer · ${n} att bekräfta`:'Hantera prenumerationer';
+}
+function openSubsManager(){renderSubsList();openOverlay('subs-overlay');}
+function renderSubsList(){
+  const key=currentLogMonth||ongoingLogPeriodKey();
+  document.getElementById('subs-sub').textContent=keyLabel(key);
+  const list=subscriptions.filter(s=>subActiveForPeriod(s,key));
+  const cancelled=subscriptions.filter(s=>!subActiveForPeriod(s,key));
+  const el=document.getElementById('subs-list');
+  if(!subscriptions.length){
+    el.innerHTML=`<div class="empty-state"><div class="empty-icon">🔁</div><div class="empty-title">Inga prenumerationer än</div><div class="empty-text">Lägg till Netflix, Spotify m.m. så dyker de upp här varje månad att bekräfta.</div></div>`;
+    return;
+  }
+  const total=list.reduce((s,x)=>s+(x.amount||0),0);
+  let html=`<div class="import-group-label">Aktiva · ${fmt(total)} kr/mån</div>`;
+  list.forEach(sub=>{
+    const st=subStatusOf(key,sub.id);
+    let statusTxt,statusColor;
+    if(st==='confirmed'){statusTxt='✓ Bekräftad';statusColor='var(--green)';}
+    else if(st==='paused'){statusTxt='Pausad denna månad';statusColor='var(--text2)';}
+    else{statusTxt='Att bekräfta';statusColor='var(--text2)';}
+    let btns='';
+    if(st==='confirmed'||st==='paused'){
+      btns=`<button class="debt-btn" onclick="subAct('reset','${sub.id}')">Ångra</button>`;
+    }else{
+      btns=`<button class="debt-btn primary" onclick="subAct('confirm','${sub.id}')">✓ Bekräfta</button>
+            <button class="debt-btn" onclick="subAct('pause','${sub.id}')">Pausa</button>`;
+    }
+    html+=`<div style="padding:.7rem 1.25rem;border-bottom:1px solid var(--border);background:var(--card)">
+      <div style="display:flex;align-items:center;gap:.6rem">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:15px">${escapeHtml(sub.name)}</div>
+          <div style="font-size:12px;color:${statusColor};margin-top:1px">${statusTxt}</div>
+        </div>
+        <div style="font-size:15px;font-weight:600">${fmt(sub.amount)} kr</div>
+      </div>
+      <div class="debt-actions" style="margin-top:.5rem">
+        ${btns}
+        <button class="debt-btn" onclick="openSubEdit('${sub.id}')">✎ Redigera</button>
+        <button class="debt-btn" onclick="subAct('cancel','${sub.id}')">Säg upp</button>
+      </div>
+    </div>`;
+  });
+  if(cancelled.length){
+    html+=`<div class="import-group-label">Uppsagda</div>`;
+    cancelled.forEach(sub=>{
+      html+=`<div style="padding:.7rem 1.25rem;border-bottom:1px solid var(--border);background:var(--card);display:flex;align-items:center;gap:.6rem">
+        <div style="flex:1"><div style="font-size:15px;color:var(--text2)">${escapeHtml(sub.name)}</div>
+        <div style="font-size:12px;color:var(--text2)">Uppsagd från ${keyLabel(sub.cancelledFrom)}</div></div>
+        <button class="debt-btn" onclick="subAct('resume','${sub.id}')">Återuppta</button>
+      </div>`;
+    });
+  }
+  el.innerHTML=html;
+}
+function subAct(action,subId){
+  const key=currentLogMonth||ongoingLogPeriodKey();
+  if(action==='confirm')confirmSub(key,subId);
+  else if(action==='pause')pauseSub(key,subId);
+  else if(action==='reset')resetSub(key,subId);
+  else if(action==='cancel'){if(confirm('Säg upp prenumerationen från och med '+keyLabel(key)+'? Tidigare månader behålls.'))cancelSub(subId,key);}
+  else if(action==='resume')resumeSub(subId);
+  renderSubsList();
+  renderLogg();
+}
+let subEditId=null;
+function openSubEdit(subId){
+  subEditId=subId;
+  const sub=subId?subscriptions.find(s=>s.id===subId):null;
+  document.getElementById('subedit-title').textContent=sub?'Redigera prenumeration':'Ny prenumeration';
+  document.getElementById('subedit-name').value=sub?sub.name:'';
+  document.getElementById('subedit-amount').value=sub?sub.amount:'';
+  document.getElementById('subedit-remove').style.display=sub?'block':'none';
+  openOverlay('subedit-overlay');
+  setTimeout(()=>document.getElementById('subedit-name').focus(),300);
+}
+function closeSubEditOverlay(e){
+  if(!e||e.target===document.getElementById('subedit-overlay')){closeOverlay('subedit-overlay');subEditId=null;}
+}
+function saveSubEdit(){
+  const name=document.getElementById('subedit-name').value.trim();
+  const amount=parseInt(document.getElementById('subedit-amount').value);
+  if(!name){alert('Ange ett namn.');return;}
+  if(isNaN(amount)||amount<0){alert('Ange ett belopp.');return;}
+  if(subEditId){
+    const sub=subscriptions.find(s=>s.id===subEditId);
+    if(sub){
+      sub.name=name;sub.amount=amount;saveSubs();
+      const key=currentLogMonth||ongoingLogPeriodKey();
+      if(subStatusOf(key,sub.id)==='confirmed')syncSubTx(key,sub.id,amount,name);
+    }
+  }else{
+    ensureSubBucket();addSub(name,amount);
+  }
+  closeOverlay('subedit-overlay');subEditId=null;
+  renderSubsList();renderLogg();
+}
+function removeSubFromEdit(){
+  if(!subEditId)return;
+  if(!confirm('Ta bort prenumerationen helt? Redan bekräftade poster i historiken behålls.'))return;
+  removeSub(subEditId);
+  closeOverlay('subedit-overlay');subEditId=null;
+  renderSubsList();renderLogg();
+}
 function fixedEffectiveAmount(period,subcatId){
   const s=fixedStatus[period]&&fixedStatus[period][subcatId];
   if(!s)return budget[subcatId]||0;         // väntar → antas betald med budgetbeloppet
   if(s.status==='paused')return 0;           // pausad → 0 den månaden
-  // Bekräftad → beloppet från den riktiga raden i loggen (fallback till budget om raden
-  // rensats av 12-månadersgränsen).
   const tx=fixedTxSum(period,subcatId);
-  return tx>0?tx:(budget[subcatId]||0);
+  return tx>0?tx:(budget[subcatId]||0);      // bekräftad → beloppet från loggraden
 }
 // Skapar/uppdaterar/tar bort den riktiga loggraden (fixed:true) för en fast post/skuld i en
 // period, så att "vad du ser är vad som räknas" — bekräftar du en post dyker den upp som en
@@ -1194,8 +1415,9 @@ function setFixedStatus(period,subcatId,status,amount){
   }
   saveFixedStatus();
 }
-// Alla poster som ska bekräftas/pausas: fasta underkategorier + skuldernas kopplade kategorier.
-function confirmableSubcats(){
+// Poster som ska bekräftas/pausas för en period: fasta + skulder (prenumerationer hanteras
+// separat, som poster under en egen kategori).
+function confirmableSubcats(key){
   const debtIds=debtSubcatIdSet();
   const out=[];
   cats.forEach(cat=>cat.subcats.forEach(sc=>{
@@ -1398,15 +1620,17 @@ function availableForVariable(){
   const fixedTotal=cats.flatMap(c=>c.subcats).filter(s=>s.type==='fixed').reduce((s,sc)=>s+(budget[sc.id]||0),0);
   return (budget.income||0)-fixedTotal;
 }
-// ---- Delade summeringar (används av BÅDE Logg-headern och Konto-avstämningen, så de alltid
-// stämmer överens). Alla använder EFFEKTIVA belopp, dvs respekterar bekräfta/pausa/ändra. ----
-function fixedTotalEff(key){let s=0;cats.forEach(c=>c.subcats.forEach(sc=>{if(sc.type==='fixed')s+=fixedEffectiveAmount(key,sc.id)}));return s;}
-function debtStandingTotalEff(key){let s=0;debtSubcatIdSet().forEach(id=>{s+=fixedEffectiveAmount(key,id)});return s;}
+// ---- Delade summeringar (används av Logg-headern, Konto-avstämningen OCH donuten, så alla tre
+// visar samma "kvar av lönen"). Alla använder EFFEKTIVA belopp (bekräfta/pausa/ändra) och
+// hoppar över kategorier markerade "visa inte i donut" — precis som hjulet — så att Kvar i
+// loggen stämmer med hjulet och med kontot. ----
+function fixedTotalEff(key){let s=0;cats.forEach(c=>c.subcats.forEach(sc=>{if(sc.type==='fixed'&&!sc.excludeFromDonut)s+=fixedEffectiveAmount(key,sc.id)}));return s;}
+function debtStandingTotalEff(key){let s=0;debtSubcatIdSet().forEach(id=>{const sc=getSubcatObj(id);if(sc&&sc.excludeFromDonut)return;s+=fixedEffectiveAmount(key,id)});return s;}
 // Faktiskt loggade utflöden (rörliga köp + extra skuldinbetalningar + extra insättningar på
-// fasta-som-visas). Fasta/skulders STÅENDE belopp ligger inte här (de är committed nedan).
+// fasta-som-visas + prenumerationsposter). Fasta/skulders STÅENDE belopp ligger inte här.
 function periodLoggedOutflow(key){
   let s=0;
-  cats.forEach(c=>c.subcats.forEach(sc=>{if(sc.type!=='fixed'||sc.showInLog)s+=((log[key]?.[sc.id]||0)+getImportedSum(key,sc.id))}));
+  cats.forEach(c=>c.subcats.forEach(sc=>{if((sc.type!=='fixed'||sc.showInLog)&&!sc.excludeFromDonut)s+=((log[key]?.[sc.id]||0)+getImportedSum(key,sc.id))}));
   return s;
 }
 // Variabel budget = periodens lön MINUS fasta kostnader MINUS skuldernas stående belopp.
@@ -1704,30 +1928,46 @@ function renderBudget(){
 // paneler (föregående/nuvarande/nästa) i swipe-tracket nedan.
 // Sektion överst i Logg: fasta poster + skulder att bekräfta/pausa/ändra för perioden.
 function buildFixedSectionHTML(key){
-  const items=confirmableSubcats();
+  const items=confirmableSubcats(key);
   if(!items.length)return '';
-  let rows='';
-  items.forEach(sc=>{
-    const st=fixedStatusOf(key,sc.id);
-    const amt=fixedEffectiveAmount(key,sc.id);
-    const budgeted=budget[sc.id]||0;
-    const extras=(log[key]?.[sc.id]||0)+getImportedSum(key,sc.id);
-    let statusHTML,valStyle='';
-    if(st==='paused'){statusHTML='<span style="color:var(--text2)">Pausad denna månad</span>';valStyle='color:var(--text2);text-decoration:line-through';}
-    else if(st==='confirmed'){
-      const changed=amt!==budgeted;
-      statusHTML=`<span style="color:var(--green)">✓ Bekräftad${changed?' · ändrat belopp':''}</span>`;
-    }else{
-      statusHTML='<span style="color:var(--text2)">Antas betald · tryck för att bekräfta</span>';
-    }
-    if(extras>0)statusHTML+=` · <span style="color:var(--accent)">+${fmt(extras)} kr extra loggat</span>`;
-    rows+=`<div class="row editable" onclick="openFixedAction('${key}','${sc.id}')">
-      <span class="row-dot" style="background:${sc.catColor}"></span>
-      <span class="row-label">${sc.label}${sc.isDebt?' <span style="font-size:10px;color:var(--text2)">(skuld)</span>':''}<small>${statusHTML}</small></span>
-      <span class="row-value" style="${valStyle}">${fmt(amt)} kr</span>
-    </div>`;
+  // Gruppera per kategori med en månadssumma i rubriken (t.ex. "Prenumerationer · 450 kr/mån"),
+  // så man ser totalen per kategori i ett ögonkast.
+  const byCat={};const order=[];
+  items.forEach(sc=>{if(!byCat[sc.catLabel]){byCat[sc.catLabel]=[];order.push(sc.catLabel);}byCat[sc.catLabel].push(sc);});
+  let out='';
+  order.forEach(catLabel=>{
+    const list=byCat[catLabel];
+    // Månadssumma = summan av posternas standardbelopp (aktiva) i kategorin.
+    const monthly=list.reduce((s,sc)=>s+(budget[sc.id]||0),0);
+    let rows='';
+    list.forEach(sc=>{
+      const st=fixedStatusOf(key,sc.id);
+      const amt=fixedEffectiveAmount(key,sc.id);
+      const budgeted=budget[sc.id]||0;
+      const extras=(log[key]?.[sc.id]||0)+getImportedSum(key,sc.id);
+      let statusHTML,valStyle='';
+      if(st==='paused'){statusHTML='<span style="color:var(--text2)">Pausad denna månad</span>';valStyle='color:var(--text2);text-decoration:line-through';}
+      else if(st==='confirmed'){
+        const changed=amt!==budgeted;
+        statusHTML=`<span style="color:var(--green)">✓ Bekräftad${changed?' · ändrat belopp':''}</span>`;
+      }else{
+        statusHTML=sc.isSub
+          ?'<span style="color:var(--text2)">Att bekräfta denna månad</span>'
+          :'<span style="color:var(--text2)">Antas betald · tryck för att bekräfta</span>';
+      }
+      // Extra loggade köp (t.ex. CSV-import som hamnat på posten) går att trycka på för att
+      // se och radera dem — utan att öppna bekräfta/pausa-rutan (stopPropagation).
+      if(extras>0)statusHTML+=` · <span style="color:var(--accent)" onclick="event.stopPropagation();openTxList('${key}','${sc.id}','${escapeHtml(sc.label)}')">+${fmt(extras)} kr extra loggat ›</span>`;
+      const tag=sc.isDebt?' <span style="font-size:10px;color:var(--text2)">(skuld)</span>':(sc.isSub?' <span style="font-size:10px;color:var(--text2)">(prenumeration)</span>':'');
+      rows+=`<div class="row editable" onclick="openFixedAction('${key}','${sc.id}')">
+        <span class="row-dot" style="background:${sc.catColor}"></span>
+        <span class="row-label">${sc.label}${tag}<small>${statusHTML}</small></span>
+        <span class="row-value" style="${valStyle}">${fmt(amt)} kr</span>
+      </div>`;
+    });
+    out+=`<div class="section"><div class="section-label">${catLabel} · ${fmt(monthly)} kr/mån</div><div class="card">${rows}</div></div>`;
   });
-  return `<div class="section"><div class="section-label">Fasta poster & skulder</div><div class="card">${rows}</div></div>`;
+  return out;
 }
 let fixedCtx=null; // {key, subcatId}
 function openFixedAction(key,subcatId){
@@ -1735,12 +1975,15 @@ function openFixedAction(key,subcatId){
   const meta=subcatMeta(subcatId);
   const st=fixedStatusOf(key,subcatId);
   const budgeted=budget[subcatId]||0;
-  document.getElementById('fixed-title').textContent=(meta?meta.label:'Fast post')+' · '+keyLabel(key);
-  let note=`Standardbelopp: ${fmt(budgeted)} kr/mån. Bekräfta för att spåra i loggen, ändra beloppet för att betala extra/mindre, eller pausa den här månaden.`;
-  document.getElementById('fixed-note').textContent=note;
+  document.getElementById('fixed-title').textContent=(meta?meta.label:'Post')+' · '+keyLabel(key);
+  document.getElementById('fixed-note').textContent=`Standardbelopp: ${fmt(budgeted)} kr/mån. Bekräfta för att spåra i loggen, ändra beloppet för att betala extra/mindre, eller pausa den här månaden.`;
   const cur=fixedEffectiveAmount(key,subcatId);
-  document.getElementById('fixed-amount').value=(st==='paused')?'':cur;
+  document.getElementById('fixed-amount').value=(st==='paused'||cur===0)?budgeted:cur;
   document.getElementById('fixed-reset-btn').style.display=(st!=='pending')?'block':'none';
+  const cancelBtn=document.getElementById('fixed-cancel-btn');
+  const resumeBtn=document.getElementById('fixed-resume-btn');
+  if(cancelBtn)cancelBtn.style.display='none';
+  if(resumeBtn)resumeBtn.style.display='none';
   openOverlay('fixed-overlay');
 }
 function closeFixedOverlay(e){
@@ -1751,7 +1994,6 @@ function confirmFixed(){
   const budgeted=budget[fixedCtx.subcatId]||0;
   const val=parseInt(document.getElementById('fixed-amount').value);
   const amount=isNaN(val)?budgeted:val;
-  // Om beloppet = budget lagrar vi amount:null (bekräftad på standard), annars det ändrade.
   setFixedStatus(fixedCtx.key,fixedCtx.subcatId,'confirmed',amount===budgeted?null:amount);
   closeOverlay('fixed-overlay');fixedCtx=null;
   renderLogg();
@@ -1857,6 +2099,7 @@ function renderLogg(){
   if(!currentLogMonth)currentLogMonth=ongoingLogPeriodKey();
   refreshLogVw();
   renderLogHeader();
+  updateSubsBtnLabel();
   document.getElementById('log-pane-prev').innerHTML=buildLogPaneHTML(shiftMonthKey(currentLogMonth,-1));
   document.getElementById('log-pane-cur').innerHTML=buildLogPaneHTML(currentLogMonth);
   document.getElementById('log-pane-next').innerHTML=currentLogMonth===ongoingLogPeriodKey()?'':buildLogPaneHTML(shiftMonthKey(currentLogMonth,1));
@@ -2260,23 +2503,26 @@ function renderTxList(){
   if(!txListCtx)return;
   const {period,subcatId}=txListCtx;
   const list=(transactions[period]||[])
+    // Appens egna bekräftelse-/prenumerationsrader (fixed/sub) hanteras via sina egna vyer
+    // (bekräfta/pausa resp. prenumerationshanteraren) — visa och radera bara riktiga köp här.
+    .filter(t=>!t.fixed&&!t.sub)
     .filter(t=>subcatId===null?!t.subcatId:t.subcatId===subcatId)
     .slice()
     .sort(txSortCmp);
   const el=document.getElementById('txlist-items');
   if(!list.length){
-    el.innerHTML=`<div class="empty-state"><div class="empty-text">Inga transaktioner här.</div></div>`;
+    el.innerHTML=`<div class="empty-state"><div class="empty-text">Inga köp att visa här.</div></div>`;
     return;
   }
   el.innerHTML=list.map(t=>`
     <div class="import-row">
       <div class="import-row-main">
-        <div class="import-row-rubrik">${escapeHtml(t.rubrik)}</div>
+        <div class="import-row-rubrik">${escapeHtml(t.rubrik)}${t.manual?'':' <span style="font-size:10px;color:var(--text2)">(import)</span>'}</div>
         <div class="import-row-date">${t.dateISO}</div>
       </div>
       ${txAmountHTML(t.amount)}
       <span class="import-row-cat" onclick="openTxCatPicker('${period}','${t.id}')">Flytta</span>
-      ${t.manual?`<button class="row-btn danger" onclick="deleteManualTx('${period}','${t.id}')">✕</button>`:''}
+      <button class="row-btn danger" onclick="deleteManualTx('${period}','${t.id}')">✕</button>
     </div>
   `).join('');
 }
@@ -2320,7 +2566,7 @@ function topCategoriesLastWeek(limit){
   const sums={};
   allTransactionsFlat().forEach(t=>{
     if(t.amount>=0)return; // bara utgifter
-    if(t.fixed)return;     // fasta/skuld-betalningar ingår inte i "störst rörliga senaste 7 dagarna"
+    if(t.fixed||t.sub)return; // fasta/skuld/prenumerationsposter ingår inte i "störst rörliga senaste 7 dagarna"
     if(t.dateISO<cutoffKey)return;
     const key=t.subcatId||'__unknown';
     sums[key]=(sums[key]||0)+(-t.amount);
@@ -3077,7 +3323,7 @@ function openRenameCat(){
 }
 
 function openAddSubcat(){
-  textCtx={mode:'add-subcat',catId:editingCatId,selectedType:'variable',showInLog:false,excludeFromDonut:false};
+  textCtx={mode:'add-subcat',catId:editingCatId,selectedType:'variable',showInLog:false,excludeFromDonut:false,subscription:false};
   document.getElementById('text-title').textContent='Ny underkategori';
   document.getElementById('text-input').value='';
   document.getElementById('type-row').style.display='flex';
@@ -3089,7 +3335,7 @@ function openAddSubcat(){
 
 function openEditSubcat(subcatId){
   const sc=getSubcat(editingCatId,subcatId);if(!sc)return;
-  textCtx={mode:'edit-subcat',catId:editingCatId,subcatId,selectedType:sc.type,showInLog:!!sc.showInLog,excludeFromDonut:!!sc.excludeFromDonut};
+  textCtx={mode:'edit-subcat',catId:editingCatId,subcatId,selectedType:sc.type,showInLog:!!sc.showInLog,excludeFromDonut:!!sc.excludeFromDonut,subscription:!!sc.subscription};
   document.getElementById('text-title').textContent='Redigera underkategori';
   document.getElementById('text-input').value=sc.label;
   document.getElementById('type-row').style.display='flex';
@@ -3131,6 +3377,10 @@ function updateShowInLogRow(){
     dchk.className='sugg-check'+(don?' checked':'');
     dchk.textContent=don?'✓':'';
   }
+  // "Prenumeration"-raden är borttagen — prenumerationer hanteras nu separat (egen kategori
+  // med poster), inte som en flagga på en underkategori.
+  const srow=document.getElementById('subscription-row');
+  if(srow)srow.style.display='none';
 }
 function toggleShowInLog(){
   if(!textCtx)return;
@@ -3140,6 +3390,11 @@ function toggleShowInLog(){
 function toggleExcludeDonut(){
   if(!textCtx)return;
   textCtx.excludeFromDonut=!textCtx.excludeFromDonut;
+  updateShowInLogRow();
+}
+function toggleSubscription(){
+  if(!textCtx)return;
+  textCtx.subscription=!textCtx.subscription;
   updateShowInLogRow();
 }
 
@@ -3308,7 +3563,7 @@ loadTransactions();
 loadCustomRules();
 loadDebts();
 loadAccount();
-loadFixedStatus();const now=new Date();
+loadFixedStatus();loadSubs();const now=new Date();
 document.getElementById('b-month-label').textContent=MONTHS_FULL[now.getMonth()]+' '+now.getFullYear();
 if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 showPage('logg'); // Logg är startsidan — man loggar oftast, slipper en knapptryckning
