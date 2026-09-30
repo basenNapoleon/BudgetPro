@@ -765,9 +765,10 @@
   <div class="modal">
     <div class="modal-handle"></div>
     <div class="modal-title">Exportera data</div>
-    <div class="num-imported-note" style="display:block">All appdata nedan. Tryck <b>Kopiera</b> och klistra in där du vill spara den (eller skicka till mig för felsökning).</div>
-    <textarea id="export-text" readonly style="width:100%;height:160px;font-size:12px;font-family:monospace;border:1px solid var(--border);border-radius:12px;padding:.6rem;background:var(--bg);color:var(--text);-webkit-user-select:text;user-select:text"></textarea>
-    <button class="modal-btn" style="margin-top:.6rem" onclick="copyExportData()">Kopiera</button>
+    <div class="num-imported-note" id="export-summary" style="display:block">Sammanställer...</div>
+    <button class="modal-btn" onclick="shareExportData()">📤 Dela / spara som fil</button>
+    <button class="modal-btn" style="margin-top:.5rem;background:var(--card);color:var(--accent);border:1.5px solid var(--accent)" onclick="copyExportData()">Kopiera text</button>
+    <textarea id="export-text" readonly style="width:100%;height:110px;font-size:11px;font-family:monospace;border:1px solid var(--border);border-radius:12px;padding:.6rem;margin-top:.6rem;background:var(--bg);color:var(--text);-webkit-user-select:text;user-select:text"></textarea>
     <button class="cancel-btn" onclick="closeOverlay('export-overlay')">Stäng</button>
   </div>
 </div>
@@ -2546,7 +2547,11 @@ function renderTxList(){
     el.innerHTML=`<div class="empty-state"><div class="empty-text">Inga köp att visa här.</div></div>`;
     return;
   }
-  el.innerHTML=list.map(t=>`
+  // Tak mot frysning: rita som mest 400 rader (annars kan tusentals importerade rader
+  // få iPhone att hänga). Visa de senaste och en notis om resten.
+  const CAP=400; const shown=list.slice(0,CAP); const hidden=list.length-shown.length;
+  const note = hidden>0 ? `<div class="import-group-note">Visar de ${CAP} senaste av ${list.length}. Radera dubbletter så minskar listan.</div>` : '';
+  el.innerHTML=note+shown.map(t=>`
     <div class="import-row">
       <div class="import-row-main">
         <div class="import-row-rubrik">${escapeHtml(t.rubrik)}${t.manual?'':' <span style="font-size:10px;color:var(--text2)">(import)</span>'}</div>
@@ -3585,20 +3590,49 @@ function collectAllData(){
   for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);out[k]=localStorage.getItem(k);}
   return out;
 }
+let exportJson='';
 function openExportData(){
-  const data={_app:'budget-pro',_exported:todayISO(),data:collectAllData()};
-  document.getElementById('export-text').value=JSON.stringify(data);
-  openOverlay('export-overlay');
+  openOverlay('export-overlay'); // öppna FÖRST så rutan alltid visas, även om datan är stor
+  setTimeout(()=>{
+    let all={};
+    try{
+      all=collectAllData();
+      exportJson=JSON.stringify({_app:'budget-pro',_exported:todayISO(),data:all});
+    }catch(e){ document.getElementById('export-summary').textContent='Kunde inte bygga export: '+e.message; return; }
+    let txCount=0;
+    try{const t=JSON.parse(all['transactions-v1']||'{}');Object.keys(t).forEach(p=>txCount+=(t[p]||[]).length);}catch(e){}
+    const kb=Math.round(exportJson.length/1024);
+    document.getElementById('export-summary').innerHTML=`Total storlek: <b>${kb} kB</b> · transaktioner: <b>${txCount} st</b>.<br>Tryck "Dela / spara som fil" och skicka filen till mig, eller "Kopiera text".`;
+    const ta=document.getElementById('export-text');
+    ta.value = exportJson.length>60000 ? exportJson.slice(0,2000)+'\n\n…(för stor för att visa här — använd Dela eller Kopiera)' : exportJson;
+  },30);
+}
+function shareExportData(){
+  if(!exportJson){alert('Ingen data att dela än.');return;}
+  try{
+    const file=new File([exportJson],'budget-pro-backup.json',{type:'application/json'});
+    if(navigator.canShare&&navigator.canShare({files:[file]})){
+      navigator.share({files:[file],title:'Budget Pro backup'}).catch(()=>{});
+      return;
+    }
+  }catch(e){}
+  try{
+    const blob=new Blob([exportJson],{type:'application/json'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');a.href=url;a.download='budget-pro-backup.json';
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url),2000);
+  }catch(e){ alert('Kunde inte dela/ladda ner — använd Kopiera text i stället.'); }
 }
 function copyExportData(){
-  const ta=document.getElementById('export-text');
-  ta.focus();ta.select();ta.setSelectionRange(0,ta.value.length);
-  let ok=false;
-  try{ok=document.execCommand('copy');}catch(e){}
+  if(!exportJson){alert('Ingen data att kopiera än.');return;}
   if(navigator.clipboard&&navigator.clipboard.writeText){
-    navigator.clipboard.writeText(ta.value).then(()=>{},()=>{});ok=true;
-  }
-  alert(ok?'Kopierat! Klistra in där du vill.':'Kunde inte kopiera automatiskt — markera texten och kopiera manuellt.');
+    navigator.clipboard.writeText(exportJson).then(()=>alert('Kopierat!'),()=>fallbackCopy());
+  }else fallbackCopy();
+}
+function fallbackCopy(){
+  const ta=document.getElementById('export-text');
+  ta.value=exportJson;ta.focus();ta.select();try{ta.setSelectionRange(0,exportJson.length);document.execCommand('copy');alert('Kopierat!');}catch(e){alert('Markera texten i rutan och kopiera manuellt.');}
 }
 function openImportData(){document.getElementById('import-text').value='';openOverlay('import-data-overlay');}
 function applyImportData(){
