@@ -412,7 +412,7 @@
       <div class="section-label">Egna regler</div>
       <div id="custom-rules-card" class="card"></div>
     </div>
-    <div style="text-align:center;font-size:12px;color:var(--text2);padding:.5rem 0">Budget Pro · version 37</div>
+    <div style="text-align:center;font-size:12px;color:var(--text2);padding:.5rem 0">Budget Pro · version 38</div>
     <div class="pb"></div>
   </div>
 
@@ -1535,6 +1535,27 @@ function debtExtraPaid(debt){
 // simuleringen mot den siffran i stället för mot ursprungsberäkningen: allt före avstämningen
 // ignoreras (det är redan inbakat i den verkliga siffran), och bara perioder/inbetalningar
 // därefter räknas. Utan avstämning simuleras allt från startMonth som vanligt.
+// Hur mycket som betalas av skulden i EN period. "Vad du ser är vad som räknas", en gång:
+// - bekräftad post (fixed:true) = månadens betalning
+// - annars bankimporterad betalning (CSV, icke-manuell) = månadens betalning
+// - annars, för en AVSLUTAD period utan aktivitet, antas budgetbeloppet (gamla ologgade månader)
+// - pausad = 0
+// PLUS manuella extra-inbetalningar ("+ Extra inbetalning", manual:true) som alltid läggs ovanpå.
+// Så en bankpost dubbelräknas aldrig mot det antagna beloppet, och bekräfta räknas direkt.
+function debtPeriodPayment(id,p,isCompleted){
+  if(!id)return 0;
+  const list=transactions[p]||[];
+  const fixedPost=list.filter(t=>t.subcatId===id&&t.fixed).reduce((s,t)=>s+(-t.amount),0);
+  const csvPaid=list.filter(t=>t.subcatId===id&&!t.fixed&&!t.manual).reduce((s,t)=>s+(-t.amount),0);
+  const manualExtra=list.filter(t=>t.subcatId===id&&!t.fixed&&t.manual).reduce((s,t)=>s+(-t.amount),0)+(log[p]?.[id]||0);
+  const status=fixedStatusOf(p,id);
+  let standing;
+  if(status==='paused')standing=0;
+  else if(status==='confirmed')standing=fixedPost;   // bekräftad: posten är betalningen (csv ignoreras → ingen dubbel)
+  else if(csvPaid>0)standing=csvPaid;                 // bankimport visar att den är betald
+  else standing=isCompleted?(budget[id]||0):0;        // tom avslutad månad → anta budget; pågående → vänta
+  return standing+manualExtra;
+}
 function debtSim(debt){
   const monthlyRate=(debt.rate||0)/100/12;
   let startKey,bal;
@@ -1549,23 +1570,28 @@ function debtSim(debt){
   const monthly=debtMonthly(debt);
   const completed=completedPeriodKeysSince(startKey);
   const completedSet=new Set(completed);
-  let extraInWindow=0;
+  let paidInWindow=0;
   completed.forEach(p=>{
-    const e=debtExtraInPeriod(debt,p);
-    // Stående inbetalning för perioden = effektivt belopp (budget, 0 om pausad, eller ändrat).
-    const standing=debt.subcatId?fixedEffectiveAmount(p,debt.subcatId):monthly;
-    extraInWindow+=e;
-    bal+=bal*monthlyRate;                    // ränta på aktuellt saldo
-    bal=Math.max(0,bal-(standing+e));        // periodens inbetalning (stående + extra)
+    const pay=debt.subcatId?debtPeriodPayment(debt.subcatId,p,true):monthly;
+    paidInWindow+=pay;
+    bal+=bal*monthlyRate;                     // ränta på aktuellt saldo
+    bal=Math.max(0,bal-pay);                  // periodens inbetalning
   });
-  // Extra som loggats i perioder efter startKey som ännu inte avslutats (pågående) — dras av
-  // direkt utan ny räntecykel så pengar man just betalat syns i baren. Perioder FÖRE startKey
-  // ignoreras helt (redan inbakade i avstämningen).
+  // Perioder efter startKey som ännu inte avslutats (pågående m.fl.) — dras av direkt utan ny
+  // räntecykel, så en bekräftelse/inbetalning syns i baren med en gång. Perioder FÖRE startKey
+  // ignoreras (redan inbakade i ev. avstämning).
   if(debt.subcatId){
-    Object.keys(transactions).forEach(p=>{if(p>=startKey&&!completedSet.has(p)){const e=getImportedSum(p,debt.subcatId);extraInWindow+=e;bal=Math.max(0,bal-e);}});
-    Object.keys(log).forEach(p=>{if(p>=startKey&&!completedSet.has(p)){const e=(log[p]?.[debt.subcatId]||0);extraInWindow+=e;bal=Math.max(0,bal-e);}});
+    const seen=new Set();
+    [transactions,log,fixedStatus].forEach(store=>Object.keys(store||{}).forEach(p=>{
+      if(p>=startKey&&!completedSet.has(p)&&!seen.has(p)){
+        seen.add(p);
+        const pay=debtPeriodPayment(debt.subcatId,p,false);
+        paidInWindow+=pay;
+        bal=Math.max(0,bal-pay);
+      }
+    }));
   }
-  return {remaining:bal,startBal,completedCount:completed.length,extraInWindow,monthly};
+  return {remaining:bal,startBal,completedCount:completed.length,paidInWindow,monthly};
 }
 function debtRemainingBalance(debt){return debtSim(debt).remaining}
 function debtPaid(debt){
@@ -1580,8 +1606,8 @@ function debtStats(debt){
   const pct=total>0?Math.min(100,Math.round(paid/total*100)):0;
   const monthly=sim.monthly;
   // Inbetalt och ränta räknas inom det aktiva fönstret (sedan avstämningen om en finns,
-  // annars sedan start) — så "varav ränta" alltid stämmer med det som visas.
-  const paymentsSince=monthly*sim.completedCount+sim.extraInWindow;
+  // annars sedan start) — summan av faktiska periodbetalningar, så "varav ränta" stämmer.
+  const paymentsSince=sim.paidInWindow;
   const principalSince=Math.max(0,sim.startBal-remaining);
   const interestSince=Math.max(0,paymentsSince-principalSince);
   // Framåtblick: simulera återstående skuld till 0 med nuvarande takt+ränta. Ger både antal
