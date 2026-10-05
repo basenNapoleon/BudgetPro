@@ -391,6 +391,10 @@
           <span class="row-label">📥 Importera data<small>Klistra in tidigare export — skriver över allt</small></span>
           <span class="row-chevron">›</span>
         </div>
+        <div class="row editable" onclick="openCleanup()">
+          <span class="row-label">🧹 Rensa data<small>Ta bort dubbletter eller gammal historik</small></span>
+          <span class="row-chevron">›</span>
+        </div>
       </div>
     </div>
     <div class="section">
@@ -782,6 +786,24 @@
     <textarea id="import-text" placeholder="Klistra in exporterad data här..." style="width:100%;height:160px;font-size:12px;font-family:monospace;border:1px solid var(--border);border-radius:12px;padding:.6rem;background:var(--bg);color:var(--text)"></textarea>
     <button class="modal-btn" style="margin-top:.6rem;background:var(--red)" onclick="applyImportData()">Skriv över och ladda om</button>
     <button class="cancel-btn" onclick="closeOverlay('import-data-overlay')">Avbryt</button>
+  </div>
+</div>
+
+<!-- MODAL: rensa data (dubbletter + gammal historik) -->
+<div class="overlay" id="cleanup-overlay" onclick="if(event.target===this)closeOverlay('cleanup-overlay')">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Rensa data</div>
+    <div class="num-imported-note" id="cleanup-summary" style="display:block">Räknar...</div>
+    <div style="font-size:13px;color:var(--text2);margin:.2rem 0 .6rem">Tips: exportera först (säkerhetskopia) om du är osäker.</div>
+    <button class="modal-btn" onclick="cleanupDuplicates()">Ta bort dubbletter</button>
+    <div style="font-size:13px;color:var(--text2);margin:.9rem 0 .4rem">Ta bort allt äldre än:</div>
+    <div style="display:flex;gap:.5rem">
+      <button class="debt-btn" style="flex:1" onclick="cleanupOlderThan(3)">3 mån</button>
+      <button class="debt-btn" style="flex:1" onclick="cleanupOlderThan(6)">6 mån</button>
+      <button class="debt-btn" style="flex:1" onclick="cleanupOlderThan(12)">12 mån</button>
+    </div>
+    <button class="cancel-btn" style="margin-top:.8rem" onclick="closeOverlay('cleanup-overlay')">Stäng</button>
   </div>
 </div>
 
@@ -3648,6 +3670,68 @@ function applyImportData(){
     Object.keys(data).forEach(k=>localStorage.setItem(k,data[k]));
     location.reload();
   }catch(e){alert('Kunde inte importera: '+e.message);}
+}
+// ======= RENSA DATA =======
+// Räknar totalt antal transaktioner (den vanligaste orsaken till att appen blir seg) och
+// uppskattar hur många dubbletter som finns (samma datum+belopp+rubrik i samma period).
+function cleanupStats(){
+  let total=0,dupes=0;
+  Object.keys(transactions).forEach(p=>{
+    const seen=new Set();
+    (transactions[p]||[]).forEach(t=>{
+      if(t.fixed||t.sub)return; // appens egna rader räknas inte som dubbletter
+      total++;
+      const k=txKey(t);
+      if(seen.has(k))dupes++; else seen.add(k);
+    });
+  });
+  return {total,dupes};
+}
+function openCleanup(){
+  openOverlay('cleanup-overlay');
+  setTimeout(()=>{
+    const s=cleanupStats();
+    document.getElementById('cleanup-summary').innerHTML=`Du har <b>${s.total}</b> transaktioner totalt${s.dupes?`, varav <b style="color:var(--red)">${s.dupes}</b> ser ut att vara dubbletter</b>`:' — inga uppenbara dubbletter'}.`;
+  },30);
+}
+// Tar bort dubbletter: behåller första förekomsten av varje datum+belopp+rubrik per period.
+// Rör inte appens egna fixed/sub-rader eller manuella köp som är unika.
+function cleanupDuplicates(){
+  const s=cleanupStats();
+  if(!s.dupes){alert('Inga dubbletter hittades.');return;}
+  if(!confirm(`Ta bort ${s.dupes} dubbletter? Detta går inte att ångra (exportera först om du vill ha backup).`))return;
+  let removed=0;
+  Object.keys(transactions).forEach(p=>{
+    const seen=new Set(),kept=[];
+    (transactions[p]||[]).forEach(t=>{
+      if(t.fixed||t.sub){kept.push(t);return;}
+      const k=txKey(t);
+      if(seen.has(k)){removed++;return;}
+      seen.add(k);kept.push(t);
+    });
+    if(kept.length)transactions[p]=kept; else delete transactions[p];
+  });
+  saveTransactions();
+  alert(removed+' dubbletter borttagna.');
+  closeOverlay('cleanup-overlay');
+  if(typeof renderLogg==='function')renderLogg();
+}
+// Rensar bakåt i tiden: tar bort ALLA period-baserade data (transaktioner, logg, status,
+// kontosaldon, lönedagar) äldre än N månader. Behåller de senaste N månaderna.
+function cleanupOlderThan(months){
+  const cutoff=new Date();cutoff.setMonth(cutoff.getMonth()-months);
+  const ck=toKey(cutoff);
+  // Räkna vad som försvinner
+  let txGone=0;
+  Object.keys(transactions).forEach(k=>{if(k<ck)txGone+=(transactions[k]||[]).length});
+  if(!confirm(`Ta bort all data äldre än ${months} månader (före ${ck})? Det tar bort ${txGone} transaktioner och tillhörande historik. Går inte att ångra.`))return;
+  [transactions,log,fixedStatus,subStatus,accountBalances,paydayOverrides].forEach(store=>{
+    if(store&&typeof store==='object')Object.keys(store).forEach(k=>{if(k<ck)delete store[k]});
+  });
+  saveTransactions();saveLog();saveFixedStatus();saveSubStatus();saveAccount();savePaydays();
+  alert('Gammal data borttagen.');
+  closeOverlay('cleanup-overlay');
+  if(typeof renderLogg==='function')renderLogg();
 }
 function openGuide(){document.getElementById('guide-overlay').classList.add('active');}
 function closeGuide(){
