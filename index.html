@@ -269,15 +269,6 @@
   </style>
 </head>
 <body>
-<!-- DIAGNOSTIK: separat skript FÖRE huvudskriptet, så det fångar även parse-fel (som annars
-     dödar all JS tyst och gör att inga knappar funkar). Visar felet som en röd ruta längst ner. -->
-<script>
-window.__errLog=[];
-function __showErr(t){try{var b=document.getElementById('__errbox');if(!b){b=document.createElement('div');b.id='__errbox';b.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#3a0d0d;color:#ffd;font:12px/1.4 monospace;padding:10px 12px;white-space:pre-wrap;max-height:55vh;overflow:auto;border-top:2px solid #f55';var h=document.createElement('div');h.textContent='⚠️ Fel upptäckt — skicka denna text till Claude. Tryck för att dölja.';h.style.cssText='font-weight:bold;margin-bottom:6px;cursor:pointer';h.onclick=function(){b.style.display='none'};b.appendChild(h);var p=document.createElement('div');p.id='__errbody';b.appendChild(p);(document.body||document.documentElement).appendChild(b);}document.getElementById('__errbody').textContent=window.__errLog.join('\n\n');}catch(e){}}
-window.onerror=function(msg,src,line,col,err){window.__errLog.push('FEL: '+msg+'  (rad '+line+':'+col+')'+(err&&err.stack?'\n'+err.stack:''));__showErr();return false;};
-window.addEventListener('unhandledrejection',function(e){window.__errLog.push('PROMISE-FEL: '+((e.reason&&e.reason.message)||e.reason));__showErr();});
-setTimeout(function(){if(!window.__booted){window.__errLog.push('Appen startade aldrig klart (huvudskriptet nådde inte slutet — troligen parse-fel eller oändlig loop vid start).');__showErr();}},2500);
-</script>
 
 <!-- ===== BUDGET ===== -->
 <div id="page-budget" class="page active">
@@ -421,7 +412,7 @@ setTimeout(function(){if(!window.__booted){window.__errLog.push('Appen startade 
       <div class="section-label">Egna regler</div>
       <div id="custom-rules-card" class="card"></div>
     </div>
-    <div style="text-align:center;font-size:12px;color:var(--text2);padding:.5rem 0">Budget Pro · version 36</div>
+    <div style="text-align:center;font-size:12px;color:var(--text2);padding:.5rem 0">Budget Pro · version 37</div>
     <div class="pb"></div>
   </div>
 
@@ -635,6 +626,7 @@ setTimeout(function(){if(!window.__booted){window.__errLog.push('Appen startade 
       <span class="sugg-label">Prenumeration<small>Måste bekräftas varje månad (räknas inte förrän du bekräftar), och kan sägas upp. Bra för Netflix, Spotify m.m.</small></span>
     </div>
     <button class="modal-btn" onclick="saveTextModal()">Spara</button>
+  </div>
 </div>
 
 <!-- MODAL: delete confirmation -->
@@ -3766,7 +3758,6 @@ if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch((
 showPage('logg'); // Logg är startsidan — man loggar oftast, slipper en knapptryckning
 // Visa guiden automatiskt första gången appen öppnas (bra för nya användare/kompisar).
 try{if(!localStorage.getItem(GUIDE_SEEN_KEY))setTimeout(openGuide,400)}catch(e){}
-window.__booted=true; // diagnostik: markerar att huvudskriptet körde klart
 </script>
 </body>
 </html>
