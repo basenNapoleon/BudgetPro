@@ -2,7 +2,7 @@
 // Utan det upptäcker webbläsaren aldrig att sw.js "ändrats" (byte-för-byte-koll),
 // installerar aldrig om, och fetch-hanteraren nedan fortsätter servera den gamla,
 // cachade index.html för evigt — även efter en lyckad ny deploy på Vercel.
-const CACHE = 'budget-pro-v34';
+const CACHE = 'budget-pro-v35';
 const FILES = ['/', '/index.html', '/manifest.json'];
 
 self.addEventListener('install', e => {
@@ -19,8 +19,21 @@ self.addEventListener('activate', e => {
   );
 });
 
+// NETWORK-FIRST (viktig ändring): hämta alltid färsk version från nätet när man är online,
+// och uppdatera cachen i bakgrunden. Falla tillbaka till cache BARA när nätet inte svarar
+// (offline). Tidigare var detta cache-first, vilket gjorde att en gammal index.html kunde
+// serveras för evigt tills sw.js byttes byte-för-byte — så en missad sw.js-uppladdning
+// låste appen på en gammal version. Nu självläker varje ny deploy automatiskt.
 self.addEventListener('fetch', e => {
+  const req = e.request;
+  if (req.method !== 'GET') return;
   e.respondWith(
-    caches.match(e.request).then(cached => cached || fetch(e.request))
+    fetch(req)
+      .then(res => {
+        const copy = res.clone();
+        caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {});
+        return res;
+      })
+      .catch(() => caches.match(req).then(c => c || caches.match('/index.html')))
   );
 });
